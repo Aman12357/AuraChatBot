@@ -904,13 +904,13 @@ app.post(
       password,
     } = req.body;
 
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Email and password are required.",
-        });
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !email.trim() ||
+      password.length > 72
+    ) {
+      return res.status(400).json({ error: "A valid email and password are required." });
     }
 
     try {
