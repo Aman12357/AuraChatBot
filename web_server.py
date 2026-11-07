@@ -53,7 +53,10 @@ def _require_master(authorization: str | None) -> dict:
     if not MASTER_EMAIL:
         raise HTTPException(status_code=503, detail="MASTER_EMAIL is not configured.")
     user = _decode_bearer_token(authorization)
-    if str(user.get("email", "")).strip().lower() != MASTER_EMAIL:
+    if (
+        str(user.get("email", "")).strip().lower() != MASTER_EMAIL
+        or user.get("role") != "master"
+    ):
         raise HTTPException(status_code=403, detail="Master administrator access required.")
     return user
 
@@ -63,7 +66,12 @@ def _create_aura_token(email: str, user_data: Any) -> str:
     user_id = email
     if isinstance(user_data, dict):
         user_id = user_data.get("id") or user_data.get("user_id") or email
-    return jwt.encode({"userId": user_id, "email": email, "aud": "aura-python"}, JWT_SECRET, algorithm="HS256")
+    role = "master" if MASTER_EMAIL and email.strip().lower() == MASTER_EMAIL else "user"
+    return jwt.encode(
+        {"userId": user_id, "email": email, "role": role, "aud": "aura-python"},
+        JWT_SECRET,
+        algorithm="HS256",
+    )
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
