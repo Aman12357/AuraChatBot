@@ -775,7 +775,7 @@ app.post(
       email,
       password,
       name,
-    } = req.body;
+    } = req.body || {};
 
     if (
       typeof email !== "string" ||
@@ -902,7 +902,7 @@ app.post(
     const {
       email,
       password,
-    } = req.body;
+    } = req.body || {};
 
     if (
       typeof email !== "string" ||
@@ -1154,6 +1154,11 @@ const wss = new WebSocketServer({
 wss.on("connection", (ws) => {
   ws.user = null;
   console.log("[WEBSOCKET] Client connected; awaiting authentication.");
+  const authTimeout = setTimeout(() => {
+    if (!ws.user && ws.readyState === 1) {
+      ws.close(1008, "Authentication timeout");
+    }
+  }, 10000);
 
   ws.on("message", async (raw) => {
     try {
@@ -1175,6 +1180,7 @@ wss.on("connection", (ws) => {
           const user = jwt.verify(data.token, JWT_SECRET, { audience: "aleena-node" });
           if (!user || !user.userId || !user.email) throw new Error("Invalid token");
           ws.user = user;
+          clearTimeout(authTimeout);
           ws.send(JSON.stringify({ type: "auth.success", data: { email: user.email } }));
         } catch (_) {
           ws.send(JSON.stringify({
