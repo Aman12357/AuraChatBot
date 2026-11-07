@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 
 type AuthUser = { id: number | string; email: string; name?: string | null };
 
@@ -16,7 +16,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
 
