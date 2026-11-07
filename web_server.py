@@ -481,7 +481,11 @@ async def websocket_endpoint(ws: WebSocket):
             if auth_message.get("type") != "auth":
                 raise ValueError("Authentication message required")
             user = _decode_bearer_token("Bearer " + token)
-            if not MASTER_EMAIL or str(user.get("email", "")).strip().lower() != MASTER_EMAIL:
+            if (
+                not MASTER_EMAIL
+                or str(user.get("email", "")).strip().lower() != MASTER_EMAIL
+                or user.get("role") != "master"
+            ):
                 raise PermissionError("Master administrator access required")
             await _ws_send(ws, "auth.success", {"email": user["email"]})
         except Exception as auth_error:
