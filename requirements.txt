@@ -28,6 +28,7 @@ pywhatkit>=5.4
 
 # Encryption used by local settings and stored data
 cryptography>=42.0.0
+PyJWT>=2.8.0
 
 # Retained for compatibility with older modules that may still import it.
 google-generativeai>=0.3.0
