@@ -135,6 +135,8 @@ The frontend now requires an account before chat access. New registrations must 
 
 Existing legacy chat sessions without a linked `user_id` are intentionally not assigned to an account automatically. They remain in the database but are not visible through authenticated user sessions, because assigning them without reliable ownership information could expose one user's history to another.
 
+**Repository snapshot limitation:** `aura_module.py` and `utils/pdf_generator.py` are not present in the tracked tree. The Python bridge now starts without them instead of crashing at import time; Aura account/oversight endpoints return HTTP 503 until `aura_module.py` is restored, and PDF creation is disabled until the PDF generator is restored. I have not fabricated replacement implementations for these missing project modules.
+
 ## 🛡️ Step 5: Verification & Production Health Checks
 
 After deployment completes:
