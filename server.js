@@ -799,7 +799,7 @@ app.post(
       typeof password !== "string" ||
       !email.trim() ||
       password.length < 8 ||
-      password.length > 72
+      password.length > 72 || Buffer.byteLength(password, "utf8") > 72
     ) {
       return res.status(400).json({
         error: "A valid email and a password between 8 and 72 characters are required.",
@@ -810,8 +810,8 @@ app.post(
       const normalizedEmail = email.trim().toLowerCase();
 
       if (MASTER_EMAIL && normalizedEmail === MASTER_EMAIL) {
-        if (!MASTER_SETUP_KEY) {
-          return res.status(503).json({ error: "MASTER_SETUP_KEY is not configured on the backend." });
+        if (!MASTER_SETUP_KEY || Buffer.byteLength(MASTER_SETUP_KEY, "utf8") < 32) {
+          return res.status(503).json({ error: "MASTER_SETUP_KEY must be configured with at least 32 characters on the backend." });
         }
         if (!safeSecretEquals(master_setup_key, MASTER_SETUP_KEY)) {
           return res.status(403).json({ error: "Administrator registration requires the setup key." });
@@ -935,7 +935,7 @@ app.post(
       typeof email !== "string" ||
       typeof password !== "string" ||
       !email.trim() ||
-      password.length > 72
+      password.length > 72 || Buffer.byteLength(password, "utf8") > 72
     ) {
       return res.status(400).json({ error: "A valid email and password are required." });
     }
@@ -944,8 +944,8 @@ app.post(
       const normalizedEmail = email.trim().toLowerCase();
 
       if (MASTER_EMAIL && normalizedEmail === MASTER_EMAIL) {
-        if (!MASTER_SETUP_KEY) {
-          return res.status(503).json({ error: "MASTER_SETUP_KEY is not configured on the backend." });
+        if (!MASTER_SETUP_KEY || Buffer.byteLength(MASTER_SETUP_KEY, "utf8") < 32) {
+          return res.status(503).json({ error: "MASTER_SETUP_KEY must be configured with at least 32 characters on the backend." });
         }
         if (!safeSecretEquals(master_setup_key, MASTER_SETUP_KEY)) {
           return res.status(403).json({ error: "Administrator login requires the access key." });
