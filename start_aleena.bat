@@ -12,8 +12,8 @@ if not exist ".env" (
     exit /b 1
 )
 
-if not exist "web\\.env.local" (
-    copy "web\\.env.example" "web\\.env.local" >nul
+if not exist "web\.env.local" (
+    copy "web\.env.example" "web\.env.local" >nul
 )
 
 echo 1. Starting Node.js API Backend (Port 8765)...
