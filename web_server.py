@@ -299,6 +299,8 @@ async def _startup():
         aura_module.aura_ensure_tables(DATA_DIR)
     else:
         logger.warning("Aura account and oversight routes are disabled: aura_module.py is not present.")
+    if create_pdf_document is None:
+        logger.warning("PDF document generation is disabled: utils/pdf_generator.py is not present.")
 
     logger.info("Backend ready — active session: %s", _active_session_id)
 
