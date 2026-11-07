@@ -14,10 +14,13 @@ import sys
 import threading
 import uuid
 from datetime import datetime
+import jwt
+from dotenv import load_dotenv
+load_dotenv()
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,6 +32,38 @@ sys.path.insert(0, str(Path(__file__).parent))
 from main import AIClient, VoiceEngine, TaskManager, load_settings, save_settings, DATA_DIR
 import aura_module
 from utils.pdf_generator import create_pdf_document
+
+JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
+MASTER_EMAIL = os.getenv("MASTER_EMAIL", "").strip().lower()
+
+def _decode_bearer_token(authorization: str | None) -> dict:
+    if not JWT_SECRET:
+        raise HTTPException(status_code=503, detail="Authentication is not configured.")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    try:
+        payload = jwt.decode(authorization[7:].strip(), JWT_SECRET, algorithms=["HS256"], audience=["aleena-node", "aura-python"])
+        if not payload.get("userId") or not payload.get("email"):
+            raise HTTPException(status_code=401, detail="Invalid authentication token.")
+        return payload
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token.")
+
+def _require_master(authorization: str | None) -> dict:
+    if not MASTER_EMAIL:
+        raise HTTPException(status_code=503, detail="MASTER_EMAIL is not configured.")
+    user = _decode_bearer_token(authorization)
+    if str(user.get("email", "")).strip().lower() != MASTER_EMAIL:
+        raise HTTPException(status_code=403, detail="Master administrator access required.")
+    return user
+
+def _create_aura_token(email: str, user_data: Any) -> str:
+    if not JWT_SECRET:
+        raise HTTPException(status_code=503, detail="Authentication is not configured.")
+    user_id = email
+    if isinstance(user_data, dict):
+        user_id = user_data.get("id") or user_data.get("user_id") or email
+    return jwt.encode({"userId": user_id, "email": email, "aud": "aura-python"}, JWT_SECRET, algorithm="HS256")
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -190,12 +225,21 @@ def _get_status() -> str:
 
 app = FastAPI(title="AI Bridge Server", version="1.0.0")
 
+_allowed_origins = {
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+}
+if os.getenv("FRONTEND_URL"):
+    _allowed_origins.add(os.getenv("FRONTEND_URL").strip())
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=sorted(_allowed_origins),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
@@ -235,7 +279,8 @@ async def health():
 
 
 @app.get("/api/settings")
-async def get_settings():
+async def get_settings(authorization: str | None = Header(default=None)):
+    _require_master(authorization)
     current = load_settings()
     # Mask sensitive keys for the frontend
     safe = {**current}
@@ -247,7 +292,8 @@ async def get_settings():
 
 
 @app.post("/api/settings")
-async def update_settings(payload: dict):
+async def update_settings(payload: dict, authorization: str | None = Header(default=None)):
+    _require_master(authorization)
     current = load_settings()
     # Only update keys that are not masked
     for k, v in payload.items():
@@ -416,9 +462,24 @@ async def get_generated_image(filename: str):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
-    logger.info("WebSocket client connected")
-
+    logger.info("WebSocket connected; awaiting master authentication")
     try:
+        try:
+            first_message = await asyncio.wait_for(ws.receive_text(), timeout=10)
+            auth_message = json.loads(first_message)
+            token = (auth_message.get("data") or {}).get("token", "")
+            if auth_message.get("type") != "auth":
+                raise ValueError("Authentication message required")
+            user = _decode_bearer_token("Bearer " + token)
+            if not MASTER_EMAIL or str(user.get("email", "")).strip().lower() != MASTER_EMAIL:
+                raise PermissionError("Master administrator access required")
+            await _ws_send(ws, "auth.success", {"email": user["email"]})
+        except Exception as auth_error:
+            logger.warning("WebSocket authentication rejected: %s", auth_error)
+            await _ws_send(ws, "auth.error", {"message": "Authentication failed."})
+            await ws.close(code=1008)
+            return
+
         while True:
             raw = await ws.receive_text()
             try:
@@ -426,39 +487,26 @@ async def websocket_endpoint(ws: WebSocket):
             except json.JSONDecodeError:
                 await _ws_send(ws, "error", {"message": "Invalid JSON"})
                 continue
-
             msg_type = msg.get("type", "")
             data = msg.get("data", {})
-            logger.info("WS ← %s  %s", msg_type, json.dumps(data)[:120])
-
+            logger.info("WS ← %s", msg_type)
             try:
-                if msg_type == "chat.send":
-                    await _handle_chat_send(ws, data)
-                elif msg_type == "voice.start":
-                    await _handle_voice_start(ws)
-                elif msg_type == "voice.stop":
-                    await _handle_voice_stop(ws)
-                elif msg_type == "voice.speak":
-                    await _handle_voice_speak(ws, data)
-                elif msg_type == "status.get":
-                    await _handle_status_get(ws)
-                elif msg_type == "session.list":
-                    await _handle_session_list(ws)
-                elif msg_type == "session.create":
-                    await _handle_session_create(ws, data)
-                elif msg_type == "session.switch":
-                    await _handle_session_switch(ws, data)
-                elif msg_type == "history.get":
-                    await _handle_history_get(ws, data)
-                else:
-                    await _ws_send(ws, "error", {"message": f"Unknown type: {msg_type}"})
-            except Exception as e:
+                if msg_type == "chat.send": await _handle_chat_send(ws, data)
+                elif msg_type == "voice.start": await _handle_voice_start(ws)
+                elif msg_type == "voice.stop": await _handle_voice_stop(ws)
+                elif msg_type == "voice.speak": await _handle_voice_speak(ws, data)
+                elif msg_type == "status.get": await _handle_status_get(ws)
+                elif msg_type == "session.list": await _handle_session_list(ws)
+                elif msg_type == "session.create": await _handle_session_create(ws, data)
+                elif msg_type == "session.switch": await _handle_session_switch(ws, data)
+                elif msg_type == "history.get": await _handle_history_get(ws, data)
+                else: await _ws_send(ws, "error", {"message": "Unknown WebSocket message type."})
+            except Exception:
                 logger.exception("Handler error for %s", msg_type)
-                await _ws_send(ws, "error", {"message": str(e)})
-
+                await _ws_send(ws, "error", {"message": "Request could not be processed."})
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
-    except Exception as e:
+    except Exception:
         logger.exception("WebSocket fatal error")
 
 
