@@ -66,11 +66,13 @@ export function useChat(token: string | null = null) {
       typeof setInterval
     > | null>(null);
 
+  const localBridgeWsUrl = process.env.NEXT_PUBLIC_LOCAL_BRIDGE_WS_URL || undefined;
   const {
     send,
     lastMessage,
     isConnected,
-  } = useWebSocket(undefined, token);
+    isVoiceConnected,
+  } = useWebSocket(undefined, token, localBridgeWsUrl);
 
   /* =======================================================
      API URL
@@ -376,6 +378,14 @@ export function useChat(token: string | null = null) {
           );
         }
 
+        break;
+      }
+
+      case 'voice.result': {
+        const recognizedText = (data.text || '').trim();
+        if (recognizedText && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('aleena-voice-result', { detail: recognizedText }));
+        }
         break;
       }
 
@@ -778,7 +788,7 @@ export function useChat(token: string | null = null) {
   const startVoice =
     useCallback(() => {
       if (
-        isConnected
+        isVoiceConnected
       ) {
         send({
           type:
@@ -788,14 +798,14 @@ export function useChat(token: string | null = null) {
         });
       }
     }, [
-      isConnected,
+      isVoiceConnected,
       send,
     ]);
 
   const stopVoice =
     useCallback(() => {
       if (
-        isConnected
+        isVoiceConnected
       ) {
         send({
           type:
@@ -805,7 +815,7 @@ export function useChat(token: string | null = null) {
         });
       }
     }, [
-      isConnected,
+      isVoiceConnected,
       send,
     ]);
 
