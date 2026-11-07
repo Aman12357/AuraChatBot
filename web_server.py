@@ -783,15 +783,18 @@ async def login_password_endpoint(payload: dict):
     if not success:
         return JSONResponse({"error": msg, "is_password_needed": is_pass_req}, status_code=400)
 
-    return {"status": "ok", "message": msg, "user": user_data}
+    token = _create_aura_token(email.strip().lower(), user_data)
+    return {"status": "ok", "message": msg, "user": user_data, "token": token}
 
 
 @app.post("/aura/auth/login")
 async def aura_login(payload: dict):
     """Standard Login Endpoint."""
     email = (payload.get("email") or "").strip()
-    password = (payload.get("password") or "1234").strip()
+    password = (payload.get("password") or "").strip()
     name = (payload.get("name") or "").strip()
+    if not email or not password:
+        return JSONResponse({"error": "Email and password are required."}, status_code=400)
 
     success, msg, user_data, is_pass_req = aura_module.authenticate_user_with_password(
         DATA_DIR, email, password, name=name
@@ -800,23 +803,32 @@ async def aura_login(payload: dict):
     if not success:
         return JSONResponse({"error": msg}, status_code=400)
 
-    return {"status": "ok", "message": msg, "user": user_data}
+    token = _create_aura_token(email.strip().lower(), user_data)
+    return {"status": "ok", "message": msg, "user": user_data, "token": token}
 
 
 @app.get("/api/aleena/users_overview")
-async def aleena_users_overview(master_email: str = ""):
-    """Master oversight analytics endpoint for Aleena AI across all user databases."""
+async def aleena_users_overview(authorization: str | None = Header(default=None)):
+    """Master-only analytics endpoint."""
+    _require_master(authorization)
     return aura_module.get_aleena_master_analytics(DATA_DIR)
 
 
 @app.get("/api/aleena/user_conversations")
-async def get_user_conversations_endpoint(master_email: str = "", user_email: str = ""):
-    """Returns all chat sessions and message history of a specific user for Master Owner review."""
+async def get_user_conversations_endpoint(
+    user_email: str = "",
+    authorization: str | None = Header(default=None),
+):
+    """Master-only conversation inspection endpoint."""
+    _require_master(authorization)
+    if not user_email.strip():
+        raise HTTPException(status_code=400, detail="user_email is required.")
     return aura_module.get_aleena_master_user_conversations(DATA_DIR, user_email)
 
 
 @app.post("/aura/chat")
-async def aura_chat(payload: dict):
+async def aura_chat(payload: dict, authorization: str | None = Header(default=None)):
+    user = _decode_bearer_token(authorization)
     """
     Aura public chat endpoint with per-user isolated database routing.
     Accepts: {message: str, session_id: str, email: str}
@@ -824,7 +836,9 @@ async def aura_chat(payload: dict):
     """
     message = (payload.get("message") or "").strip()
     session_id = payload.get("session_id") or ""
-    email = payload.get("email") or ""
+    email = str(user.get("email", "")).strip().lower()
+    if not email:
+        raise HTTPException(status_code=401, detail="Authenticated email is missing.")
 
     if not message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
@@ -940,21 +954,30 @@ async def aura_chat(payload: dict):
 
 
 @app.get("/aura/session/new")
-async def aura_new_session(email: str = None):
-    """Create a new Aura chat session in user's isolated database."""
-    session = aura_module.aura_create_session(DATA_DIR, email=email)
-    return session
+async def aura_new_session(authorization: str | None = Header(default=None)):
+    """Create a new Aura chat session for the authenticated account."""
+    user = _decode_bearer_token(authorization)
+    email = str(user.get("email", "")).strip().lower()
+    return aura_module.aura_create_session(DATA_DIR, email=email)
 
 
 @app.get("/aura/sessions")
-async def aura_get_sessions(email: str = None):
-    """List all Aura chat sessions for a specific user's isolated database."""
+async def aura_get_sessions(authorization: str | None = Header(default=None)):
+    """List sessions belonging to the authenticated account."""
+    user = _decode_bearer_token(authorization)
+    email = str(user.get("email", "")).strip().lower()
     return {"sessions": aura_module.aura_list_sessions(DATA_DIR, email=email)}
 
 
 @app.get("/aura/history")
-async def aura_get_history(session_id: str, limit: int = 100, email: str = None):
-    """Get chat history from user's isolated database."""
+async def aura_get_history(
+    session_id: str,
+    limit: int = 100,
+    authorization: str | None = Header(default=None),
+):
+    """Get history from the authenticated account's isolated database."""
+    user = _decode_bearer_token(authorization)
+    email = str(user.get("email", "")).strip().lower()
     if not session_id:
         return JSONResponse({"error": "session_id required"}, status_code=400)
     messages = aura_module.aura_get_history(DATA_DIR, session_id, limit, email=email)
