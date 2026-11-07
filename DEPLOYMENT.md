@@ -113,6 +113,20 @@ This comprehensive guide covers step-by-step production deployment of **Aleena A
 
 ---
 
+## 🔐 Step 3A: Authentication & Session Isolation
+
+The frontend now requires an account before chat access. New registrations must use a password between 8 and 72 characters. Login and registration are rate-limited.
+
+- Keep `JWT_SECRET` stable and private. Render's Blueprint generates it for the Node service.
+- The frontend receives `NEXT_PUBLIC_API_URL` and uses the Node authentication endpoints.
+- The Node API validates bearer tokens for chat and WebSocket connections.
+- Chat sessions are associated with the authenticated database user; a session ID belonging to another account is rejected.
+- For the optional local Python bridge, set `JWT_SECRET` to the exact same value used by the Node service and set `MASTER_EMAIL` to the administrator account email. Set `NEXT_PUBLIC_LOCAL_BRIDGE_URL` only when the local bridge is running.
+- The local Python bridge accepts only the configured master account for WebSocket, system settings, generated-document listing, image generation, and master oversight. Aura account REST routes require a valid user token.
+- The local bridge's JWT audience is checked separately from the Node API, so Python-issued Aura tokens cannot be used to access Node chat.
+
+Existing legacy chat sessions without a linked `user_id` are intentionally not assigned to an account automatically. They remain in the database but are not visible through authenticated user sessions, because assigning them without reliable ownership information could expose one user's history to another.
+
 ## 🛡️ Step 5: Verification & Production Health Checks
 
 After deployment completes:
