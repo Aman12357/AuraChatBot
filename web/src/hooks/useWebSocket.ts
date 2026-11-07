@@ -9,15 +9,9 @@ function getWebSocketUrl(): string {
   let envWsUrl = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_URL;
   if (envWsUrl) {
     envWsUrl = envWsUrl.trim();
-    if (envWsUrl.endsWith('/ws')) {
-      envWsUrl = envWsUrl.substring(0, envWsUrl.length - 3);
-    }
-    if (envWsUrl.startsWith('http://')) {
-      return envWsUrl.replace('http://', 'ws://') + '/ws';
-    }
-    if (envWsUrl.startsWith('https://')) {
-      return envWsUrl.replace('https://', 'wss://') + '/ws';
-    }
+    if (envWsUrl.endsWith('/ws')) envWsUrl = envWsUrl.substring(0, envWsUrl.length - 3);
+    if (envWsUrl.startsWith('http://')) return envWsUrl.replace('http://', 'ws://') + '/ws';
+    if (envWsUrl.startsWith('https://')) return envWsUrl.replace('https://', 'wss://') + '/ws';
     return `${envWsUrl}/ws`;
   }
 
@@ -25,55 +19,59 @@ function getWebSocketUrl(): string {
   if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     return `${protocol}//${window.location.host}/ws`;
   }
-
   return 'ws://127.0.0.1:8765/ws';
 }
 
-export function useWebSocket(url?: string): UseWebSocketReturn {
+export function useWebSocket(url?: string, token?: string | null): UseWebSocketReturn {
   const targetUrl = url || getWebSocketUrl();
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const [status, setStatus] = useState<UseWebSocketReturn['status']>('disconnected');
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempts = useRef(0);
   const messageQueueRef = useRef<WebSocketMessage[]>([]);
 
   const connect = useCallback(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !token) {
+      setStatus('disconnected');
+      return;
+    }
 
     try {
       setStatus('connecting');
       const ws = new WebSocket(targetUrl);
 
       ws.onopen = () => {
-        setStatus('connected');
-        reconnectAttempts.current = 0;
-
-        // Flush queued messages
-        while (messageQueueRef.current.length > 0) {
-          const msg = messageQueueRef.current.shift();
-          if (msg) ws.send(JSON.stringify(msg));
-        }
+        ws.send(JSON.stringify({ type: 'auth', data: { token } }));
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data) as WebSocketMessage;
           setLastMessage(data);
+
+          if (data.type === 'auth.success') {
+            setStatus('connected');
+            reconnectAttempts.current = 0;
+            while (messageQueueRef.current.length > 0) {
+              const msg = messageQueueRef.current.shift();
+              if (msg && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+            }
+          } else if (data.type === 'auth.error') {
+            setStatus('error');
+            ws.close(1008, 'Authentication failed');
+          }
         } catch {
           console.warn('Failed to parse WebSocket message:', event.data);
         }
       };
 
-      ws.onerror = () => {
-        setStatus('error');
-      };
+      ws.onerror = () => setStatus('error');
 
       ws.onclose = () => {
         setStatus('disconnected');
         wsRef.current = null;
-
-        // Exponential backoff reconnect
+        if (!token) return;
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
         reconnectAttempts.current += 1;
         reconnectTimeoutRef.current = setTimeout(connect, delay);
@@ -83,27 +81,39 @@ export function useWebSocket(url?: string): UseWebSocketReturn {
     } catch {
       setStatus('error');
     }
-  }, [targetUrl]);
+  }, [targetUrl, token]);
 
   useEffect(() => {
-    connect();
+    if (!token) {
+      messageQueueRef.current = [];
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      setStatus('disconnected');
+      return;
+    }
 
+    connect();
     return () => {
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsRef.current) {
-        wsRef.current.onclose = null; // Prevent reconnect on unmount
+        wsRef.current.onclose = null;
         wsRef.current.close();
+        wsRef.current = null;
       }
     };
-  }, [connect, targetUrl]);
+  }, [connect, token]);
 
   const send = useCallback((message: WebSocketMessage) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === WebSocket.OPEN && status === 'connected') {
       wsRef.current.send(JSON.stringify(message));
-    } else {
+    } else if (token) {
       messageQueueRef.current.push(message);
     }
-  }, []);
+  }, [status, token]);
 
   return {
     send,
