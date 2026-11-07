@@ -1318,7 +1318,7 @@ app.get(
    ========================================================= */
 
 async function startServer() {
-  await ensureDefaultSession();
+  // User sessions are created only after successful authentication.
 
   server.listen(
     PORT,
