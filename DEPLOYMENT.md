@@ -119,14 +119,14 @@ This comprehensive guide covers step-by-step production deployment of **Aleena A
 
 1. Set `MASTER_EMAIL` in the local Python bridge environment to the exact email address of the administrator's Aleena account.
 2. Use the same strong `JWT_SECRET` value in the Node service and local Python bridge. If Render generated the Node secret, copy that value securely into the local machine's private `.env`; do not commit it.
-3. Rebuild the static frontend after changing `NEXT_PUBLIC_API_URL` or `NEXT_PUBLIC_LOCAL_BRIDGE_URL`, because Next.js embeds public environment values at build time.
+3. Rebuild the static frontend after changing `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_LOCAL_BRIDGE_URL`, or `NEXT_PUBLIC_LOCAL_BRIDGE_WS_URL`, because Next.js embeds public environment values at build time.
 4. Register and sign in with that exact email, entering the private setup key on both screens. The key is required for the master account and should not be shared. Other users can register normally but will receive 403 responses from master-only local bridge endpoints.
 ### Local Windows launch
 
 1. Copy the root `.env.example` to `.env`. Set a random `JWT_SECRET` of at least 32 characters, your `MASTER_EMAIL`, a private `MASTER_SETUP_KEY` of at least 32 random characters, and your Gemini key. Leave `DATABASE_URL` blank for local in-memory mode, or provide a working PostgreSQL URL for persistence.
 2. Install backend packages with `npm install` in the repository root. Install frontend packages with `npm install` inside `web`. Install Python packages with `python -m pip install -r requirements.txt`.
 3. Copy `web/.env.example` to `web/.env.local` (the launcher does this automatically if it is missing).
-4. Run `start_aleena.bat`. It starts the Node API on port 8765, the Python bridge on port 8766, and Next.js on port 3000. The frontend uses Node for login/chat and the Python bridge only for local master features.
+4. Run `start_aleena.bat`. It starts the Node API on port 8765, the Python bridge on port 8766, and Next.js on port 3000. The frontend uses Node for login/chat, and the Python bridge for local microphone/TTS plus master-only local features.
 5. For persistent local accounts and chat history, configure `DATABASE_URL`; without it, Node uses in-memory storage and data is lost when the Node process restarts.
 
 ## 🔐 Step 3A: Authentication & Session Isolation
@@ -137,8 +137,8 @@ The frontend now requires an account before chat access. New registrations must 
 - The frontend receives `NEXT_PUBLIC_API_URL` and uses the Node authentication endpoints.
 - The Node API validates bearer tokens for chat and WebSocket connections.
 - Chat sessions are associated with the authenticated database user; a session ID belonging to another account is rejected.
-- For the optional local Python bridge, set `JWT_SECRET` to the exact same value used by the Node service and set `MASTER_EMAIL` to the administrator account email. Set `NEXT_PUBLIC_LOCAL_BRIDGE_URL` only when the local bridge is running.
-- The local Python bridge accepts only the configured master account for WebSocket, system settings, generated-document listing, image generation, and master oversight. Aura account REST routes require a valid user token.
+- For the optional local Python bridge, set `JWT_SECRET` to the exact same value used by the Node service and set `MASTER_EMAIL` to the administrator account email. Set `NEXT_PUBLIC_LOCAL_BRIDGE_URL` and `NEXT_PUBLIC_LOCAL_BRIDGE_WS_URL` only when the local bridge is running.
+- The local Python WebSocket accepts signed-in users for microphone/speaker actions only; chat and session history remain on the Node API. System settings, generated-document listing, image generation, and master oversight require the configured master email and a master-role token. Aura account REST routes require a valid user token.
 - The local bridge's JWT audience is checked separately from the Node API, so Python-issued Aura tokens cannot be used to access Node chat.
 
 Existing legacy chat sessions without a linked `user_id` are intentionally not assigned to an account automatically. They remain in the database but are not visible through authenticated user sessions, because assigning them without reliable ownership information could expose one user's history to another.
