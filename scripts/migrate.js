@@ -50,6 +50,11 @@ async function runMigrations() {
       );
     `);
 
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_created
+      ON chat_sessions (user_id, created_at DESC);
+    `);
+
     // 3. Chat Messages Table
     await client.query(`
       CREATE TABLE IF NOT EXISTS chat_messages (
