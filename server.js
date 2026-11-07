@@ -181,6 +181,14 @@ const apiLimiter = rateLimit({
 
 app.use("/api/", apiLimiter);
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts. Please try again later." },
+});
+
 /* =========================================================
    AUTHENTICATION
    ========================================================= */
@@ -757,6 +765,7 @@ app.get(
 
 app.post(
   "/api/auth/register",
+  authLimiter,
   async (req, res) => {
     if (!JWT_SECRET) {
       return res.status(503).json({ error: "Authentication is not configured." });
@@ -768,20 +777,20 @@ app.post(
       name,
     } = req.body;
 
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Email and password are required.",
-        });
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !email.trim() ||
+      password.length < 8 ||
+      password.length > 72
+    ) {
+      return res.status(400).json({
+        error: "A valid email and a password between 8 and 72 characters are required.",
+      });
     }
 
     try {
-      const normalizedEmail =
-        email
-          .trim()
-          .toLowerCase();
+      const normalizedEmail = email.trim().toLowerCase();
 
       const passwordHash =
         await bcrypt.hash(
@@ -834,6 +843,10 @@ app.post(
         });
       }
 
+      if (inMemoryStore.users.some((item) => item.email === normalizedEmail)) {
+        return res.status(409).json({ error: "User already exists with this email." });
+      }
+
       const user = {
         id:
           inMemoryStore
@@ -880,6 +893,7 @@ app.post(
 
 app.post(
   "/api/auth/login",
+  authLimiter,
   async (req, res) => {
     if (!JWT_SECRET) {
       return res.status(503).json({ error: "Authentication is not configured." });
