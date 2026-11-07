@@ -241,7 +241,7 @@ export default function AppShell() {
     setShowOversightModal(true);
     setLoadingOversight(true);
     try {
-      const bridgeUrl = process.env.NEXT_PUBLIC_LOCAL_BRIDGE_URL || 'http://localhost:8765';
+      const bridgeUrl = process.env.NEXT_PUBLIC_LOCAL_BRIDGE_URL || 'http://localhost:8766';
       const res = await fetch(`${bridgeUrl}/api/aleena/users_overview`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
