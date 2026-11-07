@@ -66,9 +66,9 @@ def _create_aura_token(email: str, user_data: Any) -> str:
     user_id = email
     if isinstance(user_data, dict):
         user_id = user_data.get("id") or user_data.get("user_id") or email
-    role = "master" if MASTER_EMAIL and email.strip().lower() == MASTER_EMAIL else "user"
+    # Python-issued Aura tokens are user-scoped; master privileges come only from Node login.
     return jwt.encode(
-        {"userId": user_id, "email": email, "role": role, "aud": "aura-python"},
+        {"userId": user_id, "email": email, "role": "user", "aud": "aura-python"},
         JWT_SECRET,
         algorithm="HS256",
     )
