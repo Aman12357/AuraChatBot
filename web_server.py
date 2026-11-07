@@ -1066,10 +1066,11 @@ except Exception:
 
 if __name__ == "__main__":
     local_bridge_port = int(os.getenv("LOCAL_BRIDGE_PORT", "8766"))
-    logger.info("Starting AI Bridge Server on port %s …", local_bridge_port)
+    local_bridge_host = os.getenv("LOCAL_BRIDGE_HOST", "127.0.0.1")
+    logger.info("Starting AI Bridge Server on %s:%s …", local_bridge_host, local_bridge_port)
     uvicorn.run(
         "web_server:app",
-        host="0.0.0.0",
+        host=local_bridge_host,
         port=local_bridge_port,
         reload=False,
         log_level="info",
