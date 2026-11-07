@@ -1,7 +1,7 @@
 """
 web_server.py — FastAPI WebSocket Bridge Server
 Bridges a Next.js web frontend with the existing Python AI backend (main.py).
-Run:  python web_server.py   (starts on port 8765)
+Run:  python web_server.py   (starts on LOCAL_BRIDGE_PORT, default 8766)
 """
 
 import asyncio
@@ -1065,11 +1065,12 @@ except Exception:
 # ─── Entrypoint ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    logger.info("Starting AI Bridge Server on port 8765 …")
+    local_bridge_port = int(os.getenv("LOCAL_BRIDGE_PORT", "8766"))
+    logger.info("Starting AI Bridge Server on port %s …", local_bridge_port)
     uvicorn.run(
         "web_server:app",
         host="0.0.0.0",
-        port=8765,
+        port=local_bridge_port,
         reload=False,
         log_level="info",
     )
