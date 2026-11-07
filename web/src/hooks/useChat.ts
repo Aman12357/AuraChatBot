@@ -35,7 +35,7 @@ interface ApiChatResponse {
    HOOK
    ========================================================= */
 
-export function useChat() {
+export function useChat(token: string | null = null) {
   const [
     messages,
     setMessages,
@@ -49,9 +49,7 @@ export function useChat() {
   const [
     currentSessionId,
     setCurrentSessionId,
-  ] = useState<string>(
-    'default-session'
-  );
+  ] = useState<string>('');
 
   const [
     streamingText,
@@ -72,7 +70,7 @@ export function useChat() {
     send,
     lastMessage,
     isConnected,
-  } = useWebSocket();
+  } = useWebSocket(undefined, token);
 
   /* =======================================================
      API URL
@@ -93,6 +91,14 @@ export function useChat() {
         ''
       );
     }, []);
+
+  useEffect(() => {
+    setMessages([]);
+    setSessions([]);
+    setCurrentSessionId('');
+    setStreamingText('');
+    setIsStreaming(false);
+  }, [token]);
 
   /* =======================================================
      LOAD DATA AFTER SOCKET CONNECTION
@@ -403,7 +409,7 @@ export function useChat() {
         const trimmed =
           content.trim();
 
-        if (!trimmed) {
+        if (!token || !trimmed) {
           return;
         }
 
@@ -519,6 +525,7 @@ export function useChat() {
                 headers: {
                   'Content-Type':
                     'application/json',
+                  Authorization: `Bearer ${token}`,
                 },
 
                 body: JSON.stringify({
@@ -657,6 +664,7 @@ export function useChat() {
         currentSessionId,
         getApiUrl,
         isConnected,
+        token,
         send,
       ]
     );
