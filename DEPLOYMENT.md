@@ -82,7 +82,7 @@ This comprehensive guide covers step-by-step production deployment of **Aleena A
 | `DATABASE_URL` | `<Render Internal Database URL>` |
 | `JWT_SECRET` | `<Generate strong random string>` |
 | `MASTER_EMAIL` | `<Administrator account email>` |
-| `MASTER_SETUP_KEY` | `<Strong private key required for administrator registration and sign-in>` |
+| `MASTER_SETUP_KEY` | `<At least 32 random characters; required for administrator registration and sign-in>` |
 | `FRONTEND_URL` | `https://aleena-ai-web.onrender.com` |
 | `GEMINI_API_KEY` | `<Your Google Gemini API Key>` |
 
