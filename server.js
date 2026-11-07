@@ -1375,7 +1375,7 @@ async function startServer() {
 
   server.listen(
     PORT,
-    "0.0.0.0",
+    process.env.HOST || "0.0.0.0",
     () => {
       console.log(
         `[SERVER] Aleena AI listening on port ${PORT}.`
