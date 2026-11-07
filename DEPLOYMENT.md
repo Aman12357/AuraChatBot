@@ -121,6 +121,14 @@ This comprehensive guide covers step-by-step production deployment of **Aleena A
 2. Use the same strong `JWT_SECRET` value in the Node service and local Python bridge. If Render generated the Node secret, copy that value securely into the local machine's private `.env`; do not commit it.
 3. Rebuild the static frontend after changing `NEXT_PUBLIC_API_URL` or `NEXT_PUBLIC_LOCAL_BRIDGE_URL`, because Next.js embeds public environment values at build time.
 4. Register and sign in with that exact email, entering the private setup key on both screens. The key is required for the master account and should not be shared. Other users can register normally but will receive 403 responses from master-only local bridge endpoints.
+### Local Windows launch
+
+1. Copy the root `.env.example` to `.env`. Set a random `JWT_SECRET` of at least 32 characters, your `MASTER_EMAIL`, a private `MASTER_SETUP_KEY` of at least 32 random characters, and your Gemini key. Leave `DATABASE_URL` blank for local in-memory mode, or provide a working PostgreSQL URL for persistence.
+2. Install backend packages with `npm install` in the repository root. Install frontend packages with `npm install` inside `web`. Install Python packages with `python -m pip install -r requirements.txt`.
+3. Copy `web/.env.example` to `web/.env.local` (the launcher does this automatically if it is missing).
+4. Run `start_aleena.bat`. It starts the Node API on port 8765, the Python bridge on port 8766, and Next.js on port 3000. The frontend uses Node for login/chat and the Python bridge only for local master features.
+5. For persistent local accounts and chat history, configure `DATABASE_URL`; without it, Node uses in-memory storage and data is lost when the Node process restarts.
+
 ## 🔐 Step 3A: Authentication & Session Isolation
 
 The frontend now requires an account before chat access. New registrations must use a password between 8 and 72 characters. Login and registration are rate-limited.
