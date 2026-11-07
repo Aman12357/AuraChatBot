@@ -1,10 +1,33 @@
+# Web/API backend
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
 websockets>=11.0.3
-google-generativeai>=0.3.0
 python-multipart>=0.0.6
-reportlab>=4.0.0
+pydantic>=2.0.0
 requests>=2.31.0
+reportlab>=4.0.0
+
+# Gemini SDK used by main.py (google.genai)
+google-genai>=1.0.0
+
+# Desktop UI and image handling
+customtkinter>=5.2.0
+Pillow>=10.0.0
+
+# Speech recognition and text-to-speech
+SpeechRecognition>=3.10.0
+pyttsx3>=2.90
 pygame>=2.5.0
 edge-tts>=6.1.9
-pydantic>=2.0.0
+gTTS>=2.5.0
+elevenlabs>=1.0.0
+
+# Language detection and desktop integrations
+langdetect>=1.0.9
+pywhatkit>=5.4
+
+# Encryption used by local settings and stored data
+cryptography>=42.0.0
+
+# Retained for compatibility with older modules that may still import it.
+google-generativeai>=0.3.0
