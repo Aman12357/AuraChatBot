@@ -507,13 +507,16 @@ async def websocket_endpoint(ws: WebSocket):
             if auth_message.get("type") != "auth":
                 raise ValueError("Authentication message required")
             user = _decode_bearer_token("Bearer " + token)
-            if (
-                not MASTER_EMAIL
-                or str(user.get("email", "")).strip().lower() != MASTER_EMAIL
-                or user.get("role") != "master"
-            ):
-                raise PermissionError("Master administrator access required")
-            await _ws_send(ws, "auth.success", {"email": user["email"]})
+            is_master = bool(
+                MASTER_EMAIL
+                and str(user.get("email", "")).strip().lower() == MASTER_EMAIL
+                and user.get("role") == "master"
+            )
+            await _ws_send(
+                ws,
+                "auth.success",
+                {"email": user["email"], "role": "master" if is_master else "user"},
+            )
         except Exception as auth_error:
             logger.warning("WebSocket authentication rejected: %s", auth_error)
             await _ws_send(ws, "auth.error", {"message": "Authentication failed."})
@@ -530,6 +533,13 @@ async def websocket_endpoint(ws: WebSocket):
             msg_type = msg.get("type", "")
             data = msg.get("data", {})
             logger.info("WS ← %s", msg_type)
+
+            # Non-master users may use the local microphone/speaker only.
+            # Chat and session history remain on the authenticated Node API.
+            if not is_master and msg_type not in {"voice.start", "voice.stop", "voice.speak", "status.get"}:
+                await _ws_send(ws, "error", {"message": "This local bridge action requires master access."})
+                continue
+
             try:
                 if msg_type == "chat.send": await _handle_chat_send(ws, data)
                 elif msg_type == "voice.start": await _handle_voice_start(ws)
@@ -675,9 +685,11 @@ async def _handle_voice_start(ws: WebSocket):
         recognised = None
 
     if recognised:
+        # The authenticated frontend forwards this transcript to the Node chat API,
+        # keeping the conversation in the signed-in user's own session.
         await _ws_send(ws, "voice.result", {"text": recognised})
-        # Auto-send to chat
-        await _handle_chat_send(ws, {"text": recognised, "session_id": _active_session_id})
+        _set_status("ready")
+        await _ws_send(ws, "status.update", {"status": "ready"})
     else:
         await _ws_send(ws, "voice.result", {"text": None, "error": "No speech detected"})
         _set_status("ready")
