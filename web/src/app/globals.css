@@ -123,3 +123,107 @@ body {
     transform: scaleY(1);
   }
 }
+
+
+/* Readable, consistent formatting for Aleena's Markdown replies. */
+.assistant-markdown {
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.assistant-markdown > :first-child { margin-top: 0; }
+.assistant-markdown > :last-child { margin-bottom: 0; }
+.assistant-markdown p { margin: 0.65rem 0; }
+.assistant-markdown h1,
+.assistant-markdown h2,
+.assistant-markdown h3,
+.assistant-markdown h4 {
+  color: #f8fafc;
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 1.35rem 0 0.55rem;
+}
+.assistant-markdown h1 { font-size: 1.35rem; }
+.assistant-markdown h2 { font-size: 1.15rem; }
+.assistant-markdown h3 { font-size: 1rem; }
+.assistant-markdown strong { color: #fff; font-weight: 650; }
+.assistant-markdown em { color: #cbd5e1; }
+.assistant-markdown a {
+  color: #67e8f9;
+  text-decoration: underline;
+  text-decoration-color: rgba(103, 232, 249, 0.45);
+  text-underline-offset: 3px;
+}
+.assistant-markdown ul,
+.assistant-markdown ol {
+  margin: 0.7rem 0;
+  padding-left: 1.5rem;
+}
+.assistant-markdown ul { list-style: disc; }
+.assistant-markdown ol { list-style: decimal; }
+.assistant-markdown li { margin: 0.3rem 0; padding-left: 0.2rem; }
+.assistant-markdown li::marker { color: #67e8f9; }
+.assistant-markdown blockquote {
+  margin: 1rem 0;
+  border-left: 3px solid rgba(103, 232, 249, 0.65);
+  border-radius: 0 0.5rem 0.5rem 0;
+  background: rgba(103, 232, 249, 0.06);
+  padding: 0.65rem 0.9rem;
+  color: #cbd5e1;
+}
+.assistant-markdown :not(pre) > code {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.35rem;
+  background: rgba(148, 163, 184, 0.12);
+  padding: 0.12rem 0.35rem;
+  color: #a5f3fc;
+  font-size: 0.82em;
+}
+.assistant-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.9rem 0;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.8rem;
+  background: #080d18;
+  padding: 1rem;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  line-height: 1.65;
+  tab-size: 2;
+}
+.assistant-markdown pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.assistant-markdown table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.9rem 0;
+  font-size: 0.82rem;
+}
+.assistant-markdown th,
+.assistant-markdown td {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+.assistant-markdown th {
+  background: rgba(103, 232, 249, 0.08);
+  color: #f8fafc;
+  font-weight: 650;
+}
+.assistant-markdown tr:nth-child(even) td { background: rgba(255, 255, 255, 0.025); }
+.assistant-markdown hr {
+  margin: 1.2rem 0;
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+.assistant-markdown img { max-width: 100%; border-radius: 0.75rem; }
