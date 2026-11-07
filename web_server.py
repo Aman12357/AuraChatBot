@@ -850,9 +850,8 @@ async def aura_login(payload: dict):
 
 @app.get("/api/aleena/users_overview")
 async def aleena_users_overview(authorization: str | None = Header(default=None)):
-    _require_aura_module()
-    """Master-only analytics endpoint."""
     _require_master(authorization)
+    _require_aura_module()
     return aura_module.get_aleena_master_analytics(DATA_DIR)
 
 
@@ -861,9 +860,8 @@ async def get_user_conversations_endpoint(
     user_email: str = "",
     authorization: str | None = Header(default=None),
 ):
-    _require_aura_module()
-    """Master-only conversation inspection endpoint."""
     _require_master(authorization)
+    _require_aura_module()
     if not user_email.strip():
         raise HTTPException(status_code=400, detail="user_email is required.")
     return aura_module.get_aleena_master_user_conversations(DATA_DIR, user_email)
@@ -999,18 +997,16 @@ async def aura_chat(payload: dict, authorization: str | None = Header(default=No
 
 @app.get("/aura/session/new")
 async def aura_new_session(authorization: str | None = Header(default=None)):
-    _require_aura_module()
-    """Create a new Aura chat session for the authenticated account."""
     user = _decode_bearer_token(authorization)
+    _require_aura_module()
     email = str(user.get("email", "")).strip().lower()
     return aura_module.aura_create_session(DATA_DIR, email=email)
 
 
 @app.get("/aura/sessions")
 async def aura_get_sessions(authorization: str | None = Header(default=None)):
-    _require_aura_module()
-    """List sessions belonging to the authenticated account."""
     user = _decode_bearer_token(authorization)
+    _require_aura_module()
     email = str(user.get("email", "")).strip().lower()
     return {"sessions": aura_module.aura_list_sessions(DATA_DIR, email=email)}
 
@@ -1021,9 +1017,8 @@ async def aura_get_history(
     limit: int = 100,
     authorization: str | None = Header(default=None),
 ):
-    _require_aura_module()
-    """Get history from the authenticated account's isolated database."""
     user = _decode_bearer_token(authorization)
+    _require_aura_module()
     email = str(user.get("email", "")).strip().lower()
     if not session_id:
         return JSONResponse({"error": "session_id required"}, status_code=400)
