@@ -48,6 +48,10 @@ export function useWebSocket(
   const reconnectAttempts = useRef(0);
   const voiceReconnectAttempts = useRef(0);
   const messageQueueRef = useRef<WebSocketMessage[]>([]);
+  const statusRef = useRef(status);
+  const voiceStatusRef = useRef(voiceStatus);
+  statusRef.current = status;
+  voiceStatusRef.current = voiceStatus;
 
   const connect = useCallback(() => {
     if (typeof window === 'undefined' || !token) {
@@ -150,6 +154,7 @@ export function useWebSocket(
   }, [token, voiceUrl]);
 
   useEffect(() => {
+    setLastMessage(null);
     if (!token) {
       messageQueueRef.current = [];
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
@@ -191,18 +196,18 @@ export function useWebSocket(
   const send = useCallback((message: WebSocketMessage) => {
     const voiceMessageTypes = ['voice.start', 'voice.stop', 'voice.speak', 'status.get'];
     if (voiceMessageTypes.includes(message.type)) {
-      if (voiceWsRef.current?.readyState === WebSocket.OPEN && voiceStatus === 'connected') {
+      if (voiceWsRef.current?.readyState === WebSocket.OPEN && voiceStatusRef.current === 'connected') {
         voiceWsRef.current.send(JSON.stringify(message));
       }
       return;
     }
 
-    if (wsRef.current?.readyState === WebSocket.OPEN && status === 'connected') {
+    if (wsRef.current?.readyState === WebSocket.OPEN && statusRef.current === 'connected') {
       wsRef.current.send(JSON.stringify(message));
     } else if (token) {
       messageQueueRef.current.push(message);
     }
-  }, [status, token, voiceStatus]);
+  }, [token]);
 
   return {
     send,
