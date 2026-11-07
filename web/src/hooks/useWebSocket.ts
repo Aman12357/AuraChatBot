@@ -68,10 +68,10 @@ export function useWebSocket(url?: string, token?: string | null): UseWebSocketR
 
       ws.onerror = () => setStatus('error');
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setStatus('disconnected');
         wsRef.current = null;
-        if (!token) return;
+        if (!token || event.code === 1008) return;
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
         reconnectAttempts.current += 1;
         reconnectTimeoutRef.current = setTimeout(connect, delay);
