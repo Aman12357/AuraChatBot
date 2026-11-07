@@ -30,8 +30,20 @@ import uvicorn
 # main.py lives in the same directory
 sys.path.insert(0, str(Path(__file__).parent))
 from main import AIClient, VoiceEngine, TaskManager, load_settings, save_settings, DATA_DIR
-import aura_module
-from utils.pdf_generator import create_pdf_document
+
+try:
+    import aura_module
+    _AURA_IMPORT_ERROR = None
+except ImportError as exc:
+    aura_module = None
+    _AURA_IMPORT_ERROR = str(exc)
+
+try:
+    from utils.pdf_generator import create_pdf_document
+    _PDF_IMPORT_ERROR = None
+except ImportError as exc:
+    create_pdf_document = None
+    _PDF_IMPORT_ERROR = str(exc)
 
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 MASTER_EMAIL = os.getenv("MASTER_EMAIL", "").strip().lower()
@@ -59,6 +71,15 @@ def _require_master(authorization: str | None) -> dict:
     ):
         raise HTTPException(status_code=403, detail="Master administrator access required.")
     return user
+
+def _require_aura_module() -> None:
+    if aura_module is None:
+        logger.error("Aura-specific module is unavailable: %s", _AURA_IMPORT_ERROR)
+        raise HTTPException(
+            status_code=503,
+            detail="Aura account and oversight features are unavailable because their optional module is missing.",
+        )
+
 
 def _create_aura_token(email: str, user_data: Any) -> str:
     if not JWT_SECRET:
@@ -273,8 +294,11 @@ async def _startup():
         new = _create_session("Default")
         _active_session_id = new["session_id"]
 
-    # Ensure Aura tables exist in the shared database
-    aura_module.aura_ensure_tables(DATA_DIR)
+    # Aura account/oversight features are optional in this repository snapshot.
+    if aura_module is not None:
+        aura_module.aura_ensure_tables(DATA_DIR)
+    else:
+        logger.warning("Aura account and oversight routes are disabled: aura_module.py is not present.")
 
     logger.info("Backend ready — active session: %s", _active_session_id)
 
@@ -769,6 +793,7 @@ async def _handle_history_get(ws: WebSocket, data: dict):
 
 @app.post("/aura/auth/check_email")
 async def check_email_endpoint(payload: dict):
+    _require_aura_module()
     """Checks if email format/domain is valid and whether user exists."""
     email = (payload.get("email") or "").strip()
     exists, status_type, user_info = aura_module.check_user_email_status(DATA_DIR, email)
@@ -785,6 +810,7 @@ async def check_email_endpoint(payload: dict):
 
 @app.post("/aura/auth/login_password")
 async def login_password_endpoint(payload: dict):
+    _require_aura_module()
     """Authenticate or Register user with password."""
     email = (payload.get("email") or "").strip()
     password = (payload.get("password") or "").strip()
@@ -803,6 +829,7 @@ async def login_password_endpoint(payload: dict):
 
 @app.post("/aura/auth/login")
 async def aura_login(payload: dict):
+    _require_aura_module()
     """Standard Login Endpoint."""
     email = (payload.get("email") or "").strip()
     password = (payload.get("password") or "").strip()
@@ -823,6 +850,7 @@ async def aura_login(payload: dict):
 
 @app.get("/api/aleena/users_overview")
 async def aleena_users_overview(authorization: str | None = Header(default=None)):
+    _require_aura_module()
     """Master-only analytics endpoint."""
     _require_master(authorization)
     return aura_module.get_aleena_master_analytics(DATA_DIR)
@@ -833,6 +861,7 @@ async def get_user_conversations_endpoint(
     user_email: str = "",
     authorization: str | None = Header(default=None),
 ):
+    _require_aura_module()
     """Master-only conversation inspection endpoint."""
     _require_master(authorization)
     if not user_email.strip():
@@ -843,6 +872,7 @@ async def get_user_conversations_endpoint(
 @app.post("/aura/chat")
 async def aura_chat(payload: dict, authorization: str | None = Header(default=None)):
     user = _decode_bearer_token(authorization)
+    _require_aura_module()
     """
     Aura public chat endpoint with per-user isolated database routing.
     Accepts: {message: str, session_id: str, email: str}
@@ -969,6 +999,7 @@ async def aura_chat(payload: dict, authorization: str | None = Header(default=No
 
 @app.get("/aura/session/new")
 async def aura_new_session(authorization: str | None = Header(default=None)):
+    _require_aura_module()
     """Create a new Aura chat session for the authenticated account."""
     user = _decode_bearer_token(authorization)
     email = str(user.get("email", "")).strip().lower()
@@ -977,6 +1008,7 @@ async def aura_new_session(authorization: str | None = Header(default=None)):
 
 @app.get("/aura/sessions")
 async def aura_get_sessions(authorization: str | None = Header(default=None)):
+    _require_aura_module()
     """List sessions belonging to the authenticated account."""
     user = _decode_bearer_token(authorization)
     email = str(user.get("email", "")).strip().lower()
@@ -989,6 +1021,7 @@ async def aura_get_history(
     limit: int = 100,
     authorization: str | None = Header(default=None),
 ):
+    _require_aura_module()
     """Get history from the authenticated account's isolated database."""
     user = _decode_bearer_token(authorization)
     email = str(user.get("email", "")).strip().lower()
