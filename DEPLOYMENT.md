@@ -118,7 +118,7 @@ This comprehensive guide covers step-by-step production deployment of **Aleena A
 1. Set `MASTER_EMAIL` in the local Python bridge environment to the exact email address of the administrator's Aleena account.
 2. Use the same strong `JWT_SECRET` value in the Node service and local Python bridge. If Render generated the Node secret, copy that value securely into the local machine's private `.env`; do not commit it.
 3. Rebuild the static frontend after changing `NEXT_PUBLIC_API_URL` or `NEXT_PUBLIC_LOCAL_BRIDGE_URL`, because Next.js embeds public environment values at build time.
-4. Register the administrator account using that exact email, then sign in. Other users can register normally but will receive 403 responses from master-only local bridge endpoints.
+4. Register and sign in with that exact email, entering the private setup key on both screens. The key is required for the master account and should not be shared. Other users can register normally but will receive 403 responses from master-only local bridge endpoints.
 ## 🔐 Step 3A: Authentication & Session Isolation
 
 The frontend now requires an account before chat access. New registrations must use a password between 8 and 72 characters. Login and registration are rate-limited.
