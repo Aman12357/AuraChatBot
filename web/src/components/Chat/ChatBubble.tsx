@@ -4,11 +4,20 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion } from 'framer-motion';
+import { Sparkles } from 'lucide-react';
 import type { Message } from '@/types';
 
 interface ChatBubbleProps {
   message: Message;
   index: number;
+}
+
+export function MessageContent({ content }: { content: string }) {
+  return (
+    <div className="assistant-markdown">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    </div>
+  );
 }
 
 export default function ChatBubble({ message, index }: ChatBubbleProps) {
@@ -28,32 +37,42 @@ export default function ChatBubble({ message, index }: ChatBubbleProps) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.3) }}
-      className={`flex gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.24, delay: Math.min(index * 0.035, 0.2) }}
+      className={`flex w-full gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
     >
-      {/* Avatar icon for AI messages */}
       {!isUser && (
-        <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-accent to-neon-blue flex items-center justify-center mt-1 shadow-[0_0_10px_rgba(124,58,237,0.3)]">
-          <span className="text-[10px] font-bold text-white">A</span>
+        <div className="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-200">
+          <Sparkles size={15} aria-label="Aleena" />
         </div>
       )}
 
       <div
-        className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${
+        className={`min-w-0 max-w-[min(88%,48rem)] rounded-2xl px-4 py-3 sm:px-5 sm:py-4 ${
           isUser
-            ? 'bg-accent/20 border border-accent/30 rounded-br-md'
-            : 'bg-white/[0.05] border border-white/[0.08] rounded-bl-md'
+            ? 'rounded-br-md border border-violet-300/20 bg-violet-500/15 text-white'
+            : 'rounded-bl-md border border-white/[0.09] bg-[#111827]/75 text-slate-100 shadow-[0_8px_28px_rgba(0,0,0,0.12)]'
         }`}
       >
-        <div className="text-[13px] leading-relaxed text-text-main prose prose-invert prose-sm max-w-none prose-pre:bg-white/[0.05] prose-pre:border prose-pre:border-white/[0.08] prose-pre:rounded-lg prose-code:text-neon-blue prose-code:text-xs prose-headings:text-text-main prose-strong:text-text-main prose-a:text-accent2">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-        </div>
-        <div className={`flex items-center gap-2 mt-1.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
-          {mounted && <span className="text-[9px] text-text-dim">{time}</span>}
+        {!isUser && (
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-200/75">
+            Aleena
+          </div>
+        )}
+
+        {isUser ? (
+          <div className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-100">
+            {message.content}
+          </div>
+        ) : (
+          <MessageContent content={message.content} />
+        )}
+
+        <div className={`mt-3 flex items-center gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+          {mounted && <span className="text-[10px] text-slate-400/80">{time}</span>}
           {message.emotion && (
-            <span className="text-[9px] text-text-dim bg-white/[0.05] px-1.5 py-0.5 rounded-full">
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-slate-400">
               {message.emotion}
             </span>
           )}
