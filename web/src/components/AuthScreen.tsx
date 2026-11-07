@@ -13,6 +13,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [masterSetupKey, setMasterSetupKey] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -31,7 +32,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       const response = await fetch(`${apiUrl}/api/auth/${mode}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password, name: name.trim() }),
+        body: JSON.stringify({ email: email.trim(), password, name: name.trim(), master_setup_key: mode === 'register' ? masterSetupKey : undefined }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Authentication failed.');
@@ -67,6 +68,13 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             Email
             <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-white outline-none focus:border-accent" />
           </label>
+          {mode === 'register' && (
+            <label className="block text-sm text-white/75">
+              Administrator setup key
+              <input type="password" value={masterSetupKey} onChange={(event) => setMasterSetupKey(event.target.value)} autoComplete="off" className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-white outline-none focus:border-accent" />
+              <span className="mt-1 block text-xs text-white/40">Required only when registering the configured administrator email.</span>
+            </label>
+          )}
           <label className="block text-sm text-white/75">
             Password
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={mode === "register" ? 8 : undefined} maxLength={72} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-white outline-none focus:border-accent" />
