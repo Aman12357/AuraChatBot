@@ -129,6 +129,16 @@ export default function AppShell() {
     [sendMessage, setIsThinking]
   );
 
+  useEffect(() => {
+    const handleVoiceResult = (event: Event) => {
+      const recognizedText = (event as CustomEvent<string>).detail;
+      if (recognizedText) handleSend(recognizedText);
+    };
+
+    window.addEventListener('aleena-voice-result', handleVoiceResult);
+    return () => window.removeEventListener('aleena-voice-result', handleVoiceResult);
+  }, [handleSend]);
+
   // Initialize Speech Recognition once on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
