@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import AuthScreen from './AuthScreen';
 import dynamic from 'next/dynamic';
 import Navbar from './Navbar';
 import ChatPanel from './Chat/ChatPanel';
@@ -27,6 +28,53 @@ const AvatarStage = dynamic(() => import('./Avatar/AvatarStage'), {
 */
 
 export default function AppShell() {
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<{ id: number | string; email: string; name?: string | null } | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const apiUrl = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+
+  useEffect(() => {
+    const storedToken = window.localStorage.getItem('aleena_auth_token');
+    if (!storedToken) {
+      setAuthReady(true);
+      return;
+    }
+
+    if (!apiUrl) {
+      window.localStorage.removeItem('aleena_auth_token');
+      setAuthReady(true);
+      return;
+    }
+
+    fetch(`${apiUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${storedToken}` },
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || !data.user) throw new Error('Session expired');
+        setAuthToken(storedToken);
+        setAuthUser(data.user);
+      })
+      .catch(() => {
+        window.localStorage.removeItem('aleena_auth_token');
+        setAuthToken(null);
+        setAuthUser(null);
+      })
+      .finally(() => setAuthReady(true));
+  }, [apiUrl]);
+
+  const handleAuthenticated = (token: string, user: { id: number | string; email: string; name?: string | null }) => {
+    window.localStorage.setItem('aleena_auth_token', token);
+    setAuthToken(token);
+    setAuthUser(user);
+  };
+
+  const handleLogout = () => {
+    window.localStorage.removeItem('aleena_auth_token');
+    setAuthToken(null);
+    setAuthUser(null);
+  };
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const {
@@ -40,7 +88,7 @@ export default function AppShell() {
     createSession,
     startVoice,
     stopVoice,
-  } = useChat();
+  } = useChat(authToken);
 
   const {
     emotion,
@@ -80,6 +128,16 @@ export default function AppShell() {
     },
     [sendMessage, setIsThinking]
   );
+
+  useEffect(() => {
+    const handleVoiceResult = (event: Event) => {
+      const recognizedText = (event as CustomEvent<string>).detail;
+      if (recognizedText) handleSend(recognizedText);
+    };
+
+    window.addEventListener('aleena-voice-result', handleVoiceResult);
+    return () => window.removeEventListener('aleena-voice-result', handleVoiceResult);
+  }, [handleSend]);
 
   // Initialize Speech Recognition once on mount
   useEffect(() => {
@@ -193,7 +251,11 @@ export default function AppShell() {
     setShowOversightModal(true);
     setLoadingOversight(true);
     try {
-      const res = await fetch('http://localhost:8765/api/aleena/users_overview?master_email=ay670744%40gmail.com');
+      const bridgeUrl = process.env.NEXT_PUBLIC_LOCAL_BRIDGE_URL || 'http://127.0.0.1:8766';
+      const res = await fetch(`${bridgeUrl}/api/aleena/users_overview`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error(`Oversight request failed (${res.status}).`);
       const data = await res.json();
       setOversightData(data);
     } catch (e) {
@@ -207,13 +269,25 @@ export default function AppShell() {
     setSelectedUserEmail(userEmail);
     setUserConvoData(null);
     try {
-      const res = await fetch(`http://localhost:8765/api/aleena/user_conversations?master_email=ay670744%40gmail.com&user_email=${encodeURIComponent(userEmail)}`);
+      const bridgeUrl = process.env.NEXT_PUBLIC_LOCAL_BRIDGE_URL || 'http://localhost:8765';
+      const res = await fetch(`${bridgeUrl}/api/aleena/user_conversations?user_email=${encodeURIComponent(userEmail)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error(`Conversation request failed (${res.status}).`);
       const data = await res.json();
       setUserConvoData(data);
     } catch (e) {
       console.error("User convo fetch error:", e);
     }
   };
+
+  if (!authReady) {
+    return <main className="min-h-screen flex items-center justify-center bg-[#050510] text-white/70">Loading secure Aleena session…</main>;
+  }
+
+  if (!authToken || !authUser) {
+    return <AuthScreen onAuthenticated={handleAuthenticated} />;
+  }
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#050510]">
@@ -222,6 +296,8 @@ export default function AppShell() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenSettings={() => setShowSettingsModal(true)}
+        userEmail={authUser?.email}
+        onLogout={handleLogout}
       />
 
       {/* Main content area */}

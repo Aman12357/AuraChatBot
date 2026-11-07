@@ -1,32 +1,50 @@
-# Dependencies
+# Node dependencies
 node_modules/
 .pnp
 .pnp.js
 
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-!.env.example
+# Python environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Next.js & Build outputs
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+data/settings.json
+data/secret.key
+
+# Next.js and build outputs
 .next/
 dist/
 out/
 build/
 coverage/
 
-# Logs & temporary files
+# Runtime data, generated assets, and local databases
+*.db
+*.sqlite
+*.sqlite3
 *.log
+audio/
+documents/
+data/generated_images/
+data/crash.log
+
+# Logs and temporary files
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.tmp
-*.db
-*.sqlite3
 
-# Operating System files
+# Operating system files
 .DS_Store
 Thumbs.db

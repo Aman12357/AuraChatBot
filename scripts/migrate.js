@@ -50,6 +50,17 @@ async function runMigrations() {
       );
     `);
 
+    // Upgrade databases created by earlier schema revisions before indexing.
+    await client.query(`
+      ALTER TABLE chat_sessions
+      ADD COLUMN IF NOT EXISTS user_id INT REFERENCES users(id) ON DELETE CASCADE;
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_created
+      ON chat_sessions (user_id, created_at DESC);
+    `);
+
     // 3. Chat Messages Table
     await client.query(`
       CREATE TABLE IF NOT EXISTS chat_messages (

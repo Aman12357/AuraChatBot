@@ -22,9 +22,11 @@ interface NavbarProps {
   activeTab?: string;
   setActiveTab?: (tab: string) => void;
   onOpenSettings?: () => void;
+  userEmail?: string;
+  onLogout?: () => void;
 }
 
-export default function Navbar({ activeTab = 'Chat', setActiveTab, onOpenSettings }: NavbarProps) {
+export default function Navbar({ activeTab = 'Chat', setActiveTab, onOpenSettings, userEmail, onLogout }: NavbarProps) {
   const [isMuted, setIsMuted] = useState(false);
 
   const handleFullscreen = () => {
@@ -77,8 +79,18 @@ export default function Navbar({ activeTab = 'Chat', setActiveTab, onOpenSetting
         ))}
       </div>
 
-      {/* Right: System Info & Controls */}
+      {/* Right: Account & Controls */}
       <div className="flex items-center gap-3">
+        {userEmail && <span className="hidden max-w-[180px] truncate text-[11px] text-text-dim md:inline">{userEmail}</span>}
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="rounded-lg border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-xs text-text-dim transition-colors hover:text-text-main"
+            title="Sign out"
+          >
+            Sign out
+          </button>
+        )}
         <button
           onClick={onOpenSettings}
           className="px-3 py-1.5 rounded-xl bg-purple-600/20 border border-purple-500/30 text-purple-300 text-xs font-medium hover:bg-purple-600/30 transition-all flex items-center gap-1.5"

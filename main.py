@@ -123,7 +123,8 @@ CONFIG_FILE = DATA_DIR / "settings.json"
 DATA_DIR.mkdir(exist_ok=True)
 AUDIO_DIR.mkdir(exist_ok=True)
 DEFAULT_SETTINGS = {
-    "gemini_api_key": "AQ.Ab8RN6KyV7doV8J35R8itvVxhpMcRoWw4Yt1r5rzrBMUTDFHPA",
+    # Configure GEMINI_API_KEY in the environment; never commit credentials.
+    "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
     "elevenlabs_api_key": "",
     "elevenlabs_voice_id": "",
     "minimax_api_key": "",
@@ -157,6 +158,10 @@ def load_settings():
             with open(CONFIG_FILE, "r") as f:
                 saved = json.load(f)
             s = {**DEFAULT_SETTINGS, **saved}
+            # An explicitly configured environment variable takes precedence over local settings.
+            env_gemini_key = os.getenv("GEMINI_API_KEY")
+            if env_gemini_key:
+                s["gemini_api_key"] = env_gemini_key
             return s
         except Exception:
             pass

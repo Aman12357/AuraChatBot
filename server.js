@@ -12,6 +12,7 @@
  */
 
 const http = require("http");
+const crypto = require("crypto");
 const path = require("path");
 const express = require("express");
 const { WebSocketServer } = require("ws");
@@ -45,10 +46,24 @@ const GEMINI_MODEL =
 
 const JWT_SECRET =
   process.env.JWT_SECRET;
+const AUTH_CONFIGURED = Boolean(
+  JWT_SECRET && Buffer.byteLength(JWT_SECRET, "utf8") >= 32
+);
 
-if (!JWT_SECRET) {
+const MASTER_EMAIL = (process.env.MASTER_EMAIL || "").trim().toLowerCase();
+const MASTER_SETUP_KEY = process.env.MASTER_SETUP_KEY || "";
+
+function safeSecretEquals(provided, expected) {
+  if (typeof provided !== "string" || !provided || !expected) return false;
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(expected);
+  return providedBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+if (!AUTH_CONFIGURED) {
   console.warn(
-    "[SECURITY] JWT_SECRET is not configured. Authentication tokens are disabled until a secret is provided."
+    "[SECURITY] JWT_SECRET is not configured. Login, chat, and WebSocket access will fail closed."
   );
 }
 
@@ -181,6 +196,59 @@ const apiLimiter = rateLimit({
 
 app.use("/api/", apiLimiter);
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts. Please try again later." },
+});
+
+/* =========================================================
+   AUTHENTICATION
+   ========================================================= */
+
+function requireAuth(req, res, next) {
+  if (!JWT_SECRET) {
+    return res.status(503).json({ error: "Authentication is not configured." });
+  }
+
+  const authorization = req.headers.authorization || "";
+  const token = authorization.startsWith("Bearer ")
+    ? authorization.slice(7).trim()
+    : "";
+
+  if (!token) {
+    return res.status(401).json({ error: "Authentication required." });
+  }
+
+  try {
+    const user = jwt.verify(token, JWT_SECRET, { audience: "aleena-node" });
+    if (!user || !user.userId || !user.email) {
+      return res.status(401).json({ error: "Invalid authentication token." });
+    }
+    req.user = user;
+    return next();
+  } catch (_) {
+    return res.status(401).json({ error: "Invalid or expired authentication token." });
+  }
+}
+
+function createUserToken(user) {
+  if (!JWT_SECRET) {
+    throw new Error("Authentication is not configured.");
+  }
+  return jwt.sign(
+    {
+      userId: user.id,
+      email: user.email,
+      role: MASTER_EMAIL && user.email.toLowerCase() === MASTER_EMAIL ? "master" : "user",
+    },
+    JWT_SECRET,
+    { expiresIn: "7d", audience: "aleena-node" }
+  );
+}
+
 /* =========================================================
    HELPERS
    ========================================================= */
@@ -237,72 +305,96 @@ function detectEmotion(text) {
    DATABASE SESSION HELPERS
    ========================================================= */
 
-async function ensureDefaultSession() {
-  if (!pool) {
-    if (inMemoryStore.sessions.length === 0) {
-      inMemoryStore.sessions.push({
-        session_id: "default-session",
-        title: "General Conversation",
-        created_at: new Date().toISOString(),
-      });
-    }
-
-    return;
+async function getUserSession(sessionId, userId) {
+  if (pool) {
+    const result = await pool.query(
+      `SELECT session_id, title, created_at
+       FROM chat_sessions
+       WHERE session_id = $1 AND user_id = $2
+       LIMIT 1`,
+      [sessionId, userId]
+    );
+    return result.rows[0] || null;
   }
 
-  try {
-    await pool.query(
-      `
-      INSERT INTO chat_sessions
-        (session_id, title)
-      VALUES
-        ($1, $2)
-      ON CONFLICT (session_id)
-      DO NOTHING
-      `,
-      [
-        "default-session",
-        "General Conversation",
-      ]
-    );
-  } catch (error) {
-    console.error(
-      "[DATABASE] Failed to ensure default session:",
-      error.message
-    );
-  }
+  return inMemoryStore.sessions.find(
+    (session) =>
+      session.session_id === sessionId &&
+      String(session.user_id) === String(userId)
+  ) || null;
 }
 
-async function saveMessage(
-  sessionId,
-  role,
-  content,
-  emotion = "neutral"
-) {
+async function listSessions(userId) {
   if (pool) {
-    try {
-      await pool.query(
-        `
-        INSERT INTO chat_messages
-          (session_id, role, content, emotion)
-        VALUES
-          ($1, $2, $3, $4)
-        `,
-        [
-          sessionId,
-          role,
-          content,
-          emotion,
-        ]
-      );
+    const result = await pool.query(
+      `SELECT session_id, title, created_at
+       FROM chat_sessions
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+    return result.rows;
+  }
 
-      return;
-    } catch (error) {
-      console.error(
-        "[DATABASE] Save message error:",
-        error.message
-      );
-    }
+  return inMemoryStore.sessions
+    .filter((session) => String(session.user_id) === String(userId))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+}
+
+async function createSession(userId, title = null) {
+  const sessionId =
+    "session-" + Date.now() + "-" +
+    Math.random().toString(36).substring(2, 10);
+
+  const sessionTitle =
+    title ||
+    `Chat ${new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+
+  const session = {
+    session_id: sessionId,
+    user_id: userId,
+    title: sessionTitle,
+    created_at: new Date().toISOString(),
+  };
+
+  if (pool) {
+    const result = await pool.query(
+      `INSERT INTO chat_sessions (session_id, user_id, title)
+       VALUES ($1, $2, $3)
+       RETURNING session_id, title, created_at`,
+      [sessionId, userId, sessionTitle]
+    );
+    return result.rows[0];
+  }
+
+  inMemoryStore.sessions.unshift(session);
+  return session;
+}
+
+async function ensureDefaultSession(userId) {
+  const sessions = await listSessions(userId);
+  if (sessions.length) return sessions[0];
+  return createSession(userId, "General Conversation");
+}
+
+async function saveMessage(sessionId, userId, role, content, emotion = "neutral") {
+  const ownedSession = await getUserSession(sessionId, userId);
+  if (!ownedSession) {
+    const error = new Error("Session not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (pool) {
+    await pool.query(
+      `INSERT INTO chat_messages (session_id, role, content, emotion)
+       VALUES ($1, $2, $3, $4)`,
+      [sessionId, role, content, emotion]
+    );
+    return;
   }
 
   if (!inMemoryStore.messages[sessionId]) {
@@ -319,131 +411,28 @@ async function saveMessage(
   });
 }
 
-async function getHistory(
-  sessionId,
-  limit = 100
-) {
-  if (pool) {
-    try {
-      const result =
-        await pool.query(
-          `
-          SELECT
-            id,
-            session_id,
-            role,
-            content,
-            emotion,
-            timestamp
-          FROM chat_messages
-          WHERE session_id = $1
-          ORDER BY id ASC
-          LIMIT $2
-          `,
-          [sessionId, limit]
-        );
-
-      return result.rows;
-    } catch (error) {
-      console.error(
-        "[DATABASE] History error:",
-        error.message
-      );
-    }
+async function getHistory(sessionId, userId, limit = 100) {
+  const ownedSession = await getUserSession(sessionId, userId);
+  if (!ownedSession) {
+    const error = new Error("Session not found.");
+    error.statusCode = 404;
+    throw error;
   }
 
-  return (
-    inMemoryStore.messages[sessionId] ||
-    []
-  );
-}
-
-async function listSessions() {
   if (pool) {
-    try {
-      const result =
-        await pool.query(
-          `
-          SELECT
-            session_id,
-            title,
-            created_at
-          FROM chat_sessions
-          ORDER BY created_at DESC
-          `
-        );
-
-      return result.rows;
-    } catch (error) {
-      console.error(
-        "[DATABASE] Session list error:",
-        error.message
-      );
-    }
+    const result = await pool.query(
+      `SELECT m.id, m.session_id, m.role, m.content, m.emotion, m.timestamp
+       FROM chat_messages m
+       INNER JOIN chat_sessions s ON s.session_id = m.session_id
+       WHERE m.session_id = $1 AND s.user_id = $2
+       ORDER BY m.id ASC
+       LIMIT $3`,
+      [sessionId, userId, limit]
+    );
+    return result.rows;
   }
 
-  return inMemoryStore.sessions;
-}
-
-async function createSession(title = null) {
-  const sessionId =
-    "session-" +
-    Date.now() +
-    "-" +
-    Math.random()
-      .toString(36)
-      .substring(2, 7);
-
-  const sessionTitle =
-    title ||
-    `Chat ${new Date().toLocaleTimeString(
-      [],
-      {
-        hour: "2-digit",
-        minute: "2-digit",
-      }
-    )}`;
-
-  const session = {
-    session_id: sessionId,
-    title: sessionTitle,
-    created_at: new Date().toISOString(),
-  };
-
-  if (pool) {
-    try {
-      const result =
-        await pool.query(
-          `
-          INSERT INTO chat_sessions
-            (session_id, title)
-          VALUES
-            ($1, $2)
-          RETURNING
-            session_id,
-            title,
-            created_at
-          `,
-          [
-            sessionId,
-            sessionTitle,
-          ]
-        );
-
-      return result.rows[0];
-    } catch (error) {
-      console.error(
-        "[DATABASE] Create session error:",
-        error.message
-      );
-    }
-  }
-
-  inMemoryStore.sessions.unshift(
-    session
-  );
-
-  return session;
+  return inMemoryStore.messages[sessionId] || [];
 }
 
 /* =========================================================
@@ -506,7 +495,8 @@ function buildGeminiContents(history) {
 
 async function generateAIResponse(
   message,
-  sessionId
+  sessionId,
+  userId
 ) {
   /*
    1. Gemini
@@ -517,6 +507,7 @@ async function generateAIResponse(
       const history =
         await getHistory(
           sessionId,
+          userId,
           20
         );
 
@@ -594,6 +585,7 @@ async function generateAIResponse(
     const history =
       await getHistory(
         sessionId,
+        userId,
         6
       );
 
@@ -740,6 +732,7 @@ app.get(
 
 app.get(
   "/api/ai-test",
+  requireAuth,
   async (req, res) => {
     if (!genAI) {
       return res.status(500).json({
@@ -791,27 +784,42 @@ app.get(
 
 app.post(
   "/api/auth/register",
+  authLimiter,
   async (req, res) => {
+    if (!JWT_SECRET) {
+      return res.status(503).json({ error: "Authentication is not configured." });
+    }
+
     const {
       email,
       password,
       name,
-    } = req.body;
+      master_setup_key,
+    } = req.body || {};
 
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Email and password are required.",
-        });
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !email.trim() ||
+      password.length < 8 ||
+      password.length > 72 || Buffer.byteLength(password, "utf8") > 72
+    ) {
+      return res.status(400).json({
+        error: "A valid email and a password between 8 and 72 characters are required.",
+      });
     }
 
     try {
-      const normalizedEmail =
-        email
-          .trim()
-          .toLowerCase();
+      const normalizedEmail = email.trim().toLowerCase();
+
+      if (MASTER_EMAIL && normalizedEmail === MASTER_EMAIL) {
+        if (!MASTER_SETUP_KEY || Buffer.byteLength(MASTER_SETUP_KEY, "utf8") < 32) {
+          return res.status(503).json({ error: "MASTER_SETUP_KEY must be configured with at least 32 characters on the backend." });
+        }
+        if (!safeSecretEquals(master_setup_key, MASTER_SETUP_KEY)) {
+          return res.status(403).json({ error: "Administrator registration requires the setup key." });
+        }
+      }
 
       const passwordHash =
         await bcrypt.hash(
@@ -855,36 +863,17 @@ app.post(
         const user =
           result.rows[0];
 
-        if (!JWT_SECRET) {
-          return res.json({
-            status: "ok",
-            user,
-            token: null,
-            warning:
-              "JWT_SECRET is not configured.",
-          });
-        }
-
-        const token =
-          jwt.sign(
-            {
-              userId:
-                user.id,
-              email:
-                user.email,
-            },
-            JWT_SECRET,
-            {
-              expiresIn:
-                "7d",
-            }
-          );
+        const token = createUserToken(user);
 
         return res.json({
           status: "ok",
           user,
           token,
         });
+      }
+
+      if (inMemoryStore.users.some((item) => item.email === normalizedEmail)) {
+        return res.status(409).json({ error: "User already exists with this email." });
       }
 
       const user = {
@@ -904,22 +893,7 @@ app.post(
         passwordHash,
       });
 
-      const token =
-        JWT_SECRET
-          ? jwt.sign(
-              {
-                userId:
-                  user.id,
-                email:
-                  user.email,
-              },
-              JWT_SECRET,
-              {
-                expiresIn:
-                  "7d",
-              }
-            )
-          : null;
+      const token = createUserToken(user);
 
       return res.json({
         status: "ok",
@@ -948,26 +922,38 @@ app.post(
 
 app.post(
   "/api/auth/login",
+  authLimiter,
   async (req, res) => {
+    if (!JWT_SECRET) {
+      return res.status(503).json({ error: "Authentication is not configured." });
+    }
+
     const {
       email,
       password,
-    } = req.body;
+      master_setup_key,
+    } = req.body || {};
 
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Email and password are required.",
-        });
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !email.trim() ||
+      password.length > 72 || Buffer.byteLength(password, "utf8") > 72
+    ) {
+      return res.status(400).json({ error: "A valid email and password are required." });
     }
 
     try {
-      const normalizedEmail =
-        email
-          .trim()
-          .toLowerCase();
+      const normalizedEmail = email.trim().toLowerCase();
+
+      if (MASTER_EMAIL && normalizedEmail === MASTER_EMAIL) {
+        if (!MASTER_SETUP_KEY || Buffer.byteLength(MASTER_SETUP_KEY, "utf8") < 32) {
+          return res.status(503).json({ error: "MASTER_SETUP_KEY must be configured with at least 32 characters on the backend." });
+        }
+        if (!safeSecretEquals(master_setup_key, MASTER_SETUP_KEY)) {
+          return res.status(403).json({ error: "Administrator login requires the access key." });
+        }
+      }
 
       let user = null;
       let passwordHash = null;
@@ -1058,22 +1044,7 @@ app.post(
           });
       }
 
-      const token =
-        JWT_SECRET
-          ? jwt.sign(
-              {
-                userId:
-                  user.id,
-                email:
-                  user.email,
-              },
-              JWT_SECRET,
-              {
-                expiresIn:
-                  "7d",
-              }
-            )
-          : null;
+      const token = createUserToken(user);
 
       return res.json({
         status: "ok",
@@ -1097,79 +1068,77 @@ app.post(
 );
 
 /* =========================================================
+   CURRENT USER
+   ========================================================= */
+
+app.get("/api/auth/me", requireAuth, async (req, res) => {
+  try {
+    let user = null;
+    if (pool) {
+      const result = await pool.query(
+        "SELECT id, email, name FROM users WHERE id = $1",
+        [req.user.userId]
+      );
+      user = result.rows[0] || null;
+    } else {
+      user = inMemoryStore.users.find(
+        (item) => String(item.id) === String(req.user.userId)
+      ) || null;
+      if (user) {
+        user = { id: user.id, email: user.email, name: user.name };
+      }
+    }
+
+    if (!user) return res.status(401).json({ error: "User account not found." });
+    return res.json({ status: "ok", user });
+  } catch (error) {
+    console.error("[AUTH] Current-user lookup failed:", error.message);
+    return res.status(500).json({ error: "Unable to verify the current user." });
+  }
+});
+
+/* =========================================================
    REST CHAT
    ========================================================= */
 
 app.post(
   "/api/chat",
+  requireAuth,
   async (req, res) => {
-    const {
-      message,
-      session_id,
-    } = req.body;
-
-    if (
-      !message ||
-      !message.trim()
-    ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Message is required.",
-        });
+    const { message, session_id } = req.body || {};
+    if (typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ error: "Message is required." });
     }
 
-    const activeSessionId =
-      session_id ||
-      "default-session";
-
-    await ensureDefaultSession();
-
-    await saveMessage(
-      activeSessionId,
-      "user",
-      message
-    );
-
     try {
-      const reply =
-        await generateAIResponse(
-          message,
-          activeSessionId
-        );
+      const userId = req.user.userId;
+      const session = session_id
+        ? await getUserSession(session_id, userId)
+        : await ensureDefaultSession(userId);
 
-      const emotion =
-        detectEmotion(reply);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found." });
+      }
 
-      await saveMessage(
-        activeSessionId,
-        "assistant",
-        reply,
-        emotion
-      );
+      const activeSessionId = session.session_id;
+      await saveMessage(activeSessionId, userId, "user", message.trim());
+
+      const reply = await generateAIResponse(message.trim(), activeSessionId, userId);
+      const emotion = detectEmotion(reply);
+      await saveMessage(activeSessionId, userId, "assistant", reply, emotion);
 
       return res.json({
         status: "ok",
         response: reply,
-        session_id:
-          activeSessionId,
+        session_id: activeSessionId,
         emotion,
-        model:
-          GEMINI_MODEL,
+        model: GEMINI_MODEL,
       });
     } catch (error) {
-      console.error(
-        "[CHAT] Error:",
-        error
-      );
-
-      return res
-        .status(500)
-        .json({
-          error:
-            "AI response generation failed.",
-        });
+      console.error("[CHAT] Error:", error.message);
+      return res.status(error.statusCode || 500).json({
+        error: error.statusCode ? error.message : "AI response generation failed.",
+      });
     }
   }
 );
@@ -1213,347 +1182,161 @@ app.use(
    WEBSOCKET
    ========================================================= */
 
-const wss =
-  new WebSocketServer({
-    server,
-    path: "/ws",
+const wss = new WebSocketServer({
+  server,
+  path: "/ws",
+});
+
+wss.on("connection", (ws) => {
+  ws.user = null;
+  console.log("[WEBSOCKET] Client connected; awaiting authentication.");
+  const authTimeout = setTimeout(() => {
+    if (!ws.user && ws.readyState === 1) {
+      ws.close(1008, "Authentication timeout");
+    }
+  }, 10000);
+
+  ws.on("message", async (raw) => {
+    try {
+      const payload = JSON.parse(raw.toString());
+      const type = payload.type;
+      const data = payload.data || {};
+
+      if (!ws.user) {
+        if (type !== "auth" || !AUTH_CONFIGURED || !data.token) {
+          ws.send(JSON.stringify({
+            type: "auth.error",
+            data: { message: "Authentication required." },
+          }));
+          ws.close(1008, "Authentication required");
+          return;
+        }
+
+        try {
+          const user = jwt.verify(data.token, JWT_SECRET, { audience: "aleena-node" });
+          if (!user || !user.userId || !user.email) throw new Error("Invalid token");
+          ws.user = user;
+          clearTimeout(authTimeout);
+          ws.send(JSON.stringify({ type: "auth.success", data: { email: user.email } }));
+        } catch (_) {
+          ws.send(JSON.stringify({
+            type: "auth.error",
+            data: { message: "Invalid or expired authentication token." },
+          }));
+          ws.close(1008, "Invalid authentication");
+        }
+        return;
+      }
+
+      const userId = ws.user.userId;
+
+      if (type === "chat.send") {
+        const text = (data.text || "").trim();
+        if (!text) return;
+
+        const session = data.session_id
+          ? await getUserSession(data.session_id, userId)
+          : await ensureDefaultSession(userId);
+
+        if (!session) {
+          ws.send(JSON.stringify({ type: "error", data: { message: "Session not found." } }));
+          return;
+        }
+
+        const sessionId = session.session_id;
+        await saveMessage(sessionId, userId, "user", text);
+        ws.send(JSON.stringify({ type: "status.update", data: { status: "thinking" } }));
+
+        const reply = await generateAIResponse(text, sessionId, userId);
+        const emotion = detectEmotion(reply);
+        const parts = reply.split(/(\s+)/);
+        let chunk = "";
+
+        for (let i = 0; i < parts.length; i++) {
+          chunk += parts[i];
+          if (
+            chunk.length >= 24 ||
+            parts[i].trim().endsWith(".") ||
+            parts[i].trim().endsWith("!") ||
+            parts[i].trim().endsWith("?")
+          ) {
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({ type: "chat.stream", data: { token: chunk } }));
+            }
+            chunk = "";
+            await new Promise((resolve) => setTimeout(resolve, 15));
+          }
+        }
+
+        if (chunk && ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: "chat.stream", data: { token: chunk } }));
+        }
+
+        await saveMessage(sessionId, userId, "assistant", reply, emotion);
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: "chat.done",
+            data: { full_response: reply, emotion, session_id: sessionId },
+          }));
+          ws.send(JSON.stringify({ type: "status.update", data: { status: "ready" } }));
+        }
+      } else if (type === "session.list") {
+        const sessions = await listSessions(userId);
+        ws.send(JSON.stringify({
+          type: "session.list",
+          data: {
+            sessions,
+            active_session_id: sessions[0]?.session_id || null,
+          },
+        }));
+      } else if (type === "session.create") {
+        const session = await createSession(userId, data.title);
+        ws.send(JSON.stringify({ type: "session.created", data: session }));
+      } else if (type === "session.switch") {
+        const session = await getUserSession(data.session_id, userId);
+        if (!session) {
+          ws.send(JSON.stringify({ type: "error", data: { message: "Session not found." } }));
+          return;
+        }
+        ws.send(JSON.stringify({
+          type: "session.switched",
+          data: { session_id: session.session_id },
+        }));
+      } else if (type === "history.get") {
+        const sessionId = data.session_id;
+        const session = sessionId
+          ? await getUserSession(sessionId, userId)
+          : await ensureDefaultSession(userId);
+        if (!session) {
+          ws.send(JSON.stringify({ type: "error", data: { message: "Session not found." } }));
+          return;
+        }
+        const messages = await getHistory(session.session_id, userId);
+        ws.send(JSON.stringify({
+          type: "history.data",
+          data: { session_id: session.session_id, messages },
+        }));
+      } else {
+        ws.send(JSON.stringify({
+          type: "error",
+          data: { message: `Unknown WebSocket type: ${type}` },
+        }));
+      }
+    } catch (error) {
+      console.error("[WEBSOCKET] Processing error:", error.message);
+      try {
+        ws.send(JSON.stringify({
+          type: "error",
+          data: { message: error.statusCode ? error.message : "Request could not be processed." },
+        }));
+      } catch (_) {}
+    }
   });
 
-wss.on(
-  "connection",
-  (ws) => {
-    console.log(
-      "[WEBSOCKET] Client connected."
-    );
-
-    ws.on(
-      "message",
-      async (raw) => {
-        try {
-          const payload =
-            JSON.parse(
-              raw.toString()
-            );
-
-          const type =
-            payload.type;
-
-          const data =
-            payload.data || {};
-
-          if (
-            type ===
-            "chat.send"
-          ) {
-            const text =
-              (
-                data.text ||
-                ""
-              ).trim();
-
-            const sessionId =
-              data.session_id ||
-              "default-session";
-
-            if (!text) {
-              return;
-            }
-
-            await ensureDefaultSession();
-
-            await saveMessage(
-              sessionId,
-              "user",
-              text
-            );
-
-            ws.send(
-              JSON.stringify({
-                type:
-                  "status.update",
-                data: {
-                  status:
-                    "thinking",
-                },
-              })
-            );
-
-            const reply =
-              await generateAIResponse(
-                text,
-                sessionId
-              );
-
-            const emotion =
-              detectEmotion(
-                reply
-              );
-
-            /*
-             Simulated streaming
-            */
-
-            const parts =
-              reply.split(
-                /(\s+)/
-              );
-
-            let chunk = "";
-
-            for (
-              let i = 0;
-              i <
-              parts.length;
-              i++
-            ) {
-              chunk +=
-                parts[i];
-
-              if (
-                chunk.length >=
-                  24 ||
-                parts[i]
-                  .trim()
-                  .endsWith(
-                    "."
-                  ) ||
-                parts[i]
-                  .trim()
-                  .endsWith(
-                    "!"
-                  ) ||
-                parts[i]
-                  .trim()
-                  .endsWith(
-                    "?"
-                  )
-              ) {
-                ws.send(
-                  JSON.stringify({
-                    type:
-                      "chat.stream",
-                    data: {
-                      token:
-                        chunk,
-                    },
-                  })
-                );
-
-                chunk = "";
-
-                await new Promise(
-                  (resolve) =>
-                    setTimeout(
-                      resolve,
-                      15
-                    )
-                );
-              }
-            }
-
-            if (
-              chunk
-            ) {
-              ws.send(
-                JSON.stringify({
-                  type:
-                    "chat.stream",
-                  data: {
-                    token:
-                      chunk,
-                  },
-                })
-              );
-            }
-
-            await saveMessage(
-              sessionId,
-              "assistant",
-              reply,
-              emotion
-            );
-
-            ws.send(
-              JSON.stringify({
-                type:
-                  "chat.done",
-                data: {
-                  full_response:
-                    reply,
-                  emotion,
-                  session_id:
-                    sessionId,
-                },
-              })
-            );
-
-            ws.send(
-              JSON.stringify({
-                type:
-                  "status.update",
-                data: {
-                  status:
-                    "ready",
-                },
-              })
-            );
-          }
-
-          else if (
-            type ===
-            "session.list"
-          ) {
-            const sessions =
-              await listSessions();
-
-            ws.send(
-              JSON.stringify({
-                type:
-                  "session.list",
-                data: {
-                  sessions,
-                  active_session_id:
-                    sessions[0]
-                      ?.session_id ||
-                    "default-session",
-                },
-              })
-            );
-          }
-
-          else if (
-            type ===
-            "session.create"
-          ) {
-            const session =
-              await createSession(
-                data.title
-              );
-
-            ws.send(
-              JSON.stringify({
-                type:
-                  "session.created",
-                data:
-                  session,
-              })
-            );
-          }
-
-          else if (
-            type ===
-            "session.switch"
-          ) {
-            const sid =
-              data.session_id;
-
-            const sessions =
-              await listSessions();
-
-            const exists =
-              sessions.some(
-                (item) =>
-                  item.session_id ===
-                  sid
-              );
-
-            if (!exists) {
-              ws.send(
-                JSON.stringify({
-                  type:
-                    "error",
-                  data: {
-                    message:
-                      "Session not found.",
-                  },
-                })
-              );
-
-              return;
-            }
-
-            ws.send(
-              JSON.stringify({
-                type:
-                  "session.switched",
-                data: {
-                  session_id:
-                    sid,
-                },
-              })
-            );
-          }
-
-          else if (
-            type ===
-            "history.get"
-          ) {
-            const sid =
-              data.session_id ||
-              "default-session";
-
-            const messages =
-              await getHistory(
-                sid
-              );
-
-            ws.send(
-              JSON.stringify({
-                type:
-                  "history.data",
-                data: {
-                  session_id:
-                    sid,
-                  messages,
-                },
-              })
-            );
-          }
-
-          else {
-            ws.send(
-              JSON.stringify({
-                type:
-                  "error",
-                data: {
-                  message:
-                    `Unknown WebSocket type: ${type}`,
-                },
-              })
-            );
-          }
-        } catch (error) {
-          console.error(
-            "[WEBSOCKET] Processing error:",
-            error
-          );
-
-          try {
-            ws.send(
-              JSON.stringify({
-                type:
-                  "error",
-                data: {
-                  message:
-                    error.message,
-                },
-              })
-            );
-          } catch (_) {}
-        }
-      }
-    );
-
-    ws.on(
-      "close",
-      () => {
-        console.log(
-          "[WEBSOCKET] Client disconnected."
-        );
-      }
-    );
-  }
-);
+  ws.on("close", () => {
+    console.log("[WEBSOCKET] Client disconnected.");
+  });
+});
 
 /* =========================================================
    SPA FALLBACK
@@ -1591,11 +1374,11 @@ app.get(
    ========================================================= */
 
 async function startServer() {
-  await ensureDefaultSession();
+  // User sessions are created only after successful authentication.
 
   server.listen(
     PORT,
-    "0.0.0.0",
+    process.env.HOST || "0.0.0.0",
     () => {
       console.log(
         `[SERVER] Aleena AI listening on port ${PORT}.`

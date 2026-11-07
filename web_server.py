@@ -1,7 +1,7 @@
 """
 web_server.py — FastAPI WebSocket Bridge Server
 Bridges a Next.js web frontend with the existing Python AI backend (main.py).
-Run:  python web_server.py   (starts on port 8765)
+Run:  python web_server.py   (starts on LOCAL_BRIDGE_PORT, default 8766)
 """
 
 import asyncio
@@ -14,10 +14,13 @@ import sys
 import threading
 import uuid
 from datetime import datetime
+import jwt
+from dotenv import load_dotenv
+load_dotenv()
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,8 +30,69 @@ import uvicorn
 # main.py lives in the same directory
 sys.path.insert(0, str(Path(__file__).parent))
 from main import AIClient, VoiceEngine, TaskManager, load_settings, save_settings, DATA_DIR
-import aura_module
-from utils.pdf_generator import create_pdf_document
+
+try:
+    import aura_module
+    _AURA_IMPORT_ERROR = None
+except ImportError as exc:
+    aura_module = None
+    _AURA_IMPORT_ERROR = str(exc)
+
+try:
+    from utils.pdf_generator import create_pdf_document
+    _PDF_IMPORT_ERROR = None
+except ImportError as exc:
+    create_pdf_document = None
+    _PDF_IMPORT_ERROR = str(exc)
+
+JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
+MASTER_EMAIL = os.getenv("MASTER_EMAIL", "").strip().lower()
+
+def _decode_bearer_token(authorization: str | None) -> dict:
+    if not JWT_SECRET or len(JWT_SECRET.encode("utf-8")) < 32:
+        raise HTTPException(status_code=503, detail="Authentication requires a JWT_SECRET of at least 32 bytes.")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    try:
+        payload = jwt.decode(authorization[7:].strip(), JWT_SECRET, algorithms=["HS256"], audience=["aleena-node", "aura-python"])
+        if not payload.get("userId") or not payload.get("email"):
+            raise HTTPException(status_code=401, detail="Invalid authentication token.")
+        return payload
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token.")
+
+def _require_master(authorization: str | None) -> dict:
+    if not MASTER_EMAIL:
+        raise HTTPException(status_code=503, detail="MASTER_EMAIL is not configured.")
+    user = _decode_bearer_token(authorization)
+    if (
+        str(user.get("email", "")).strip().lower() != MASTER_EMAIL
+        or user.get("role") != "master"
+    ):
+        raise HTTPException(status_code=403, detail="Master administrator access required.")
+    return user
+
+def _require_aura_module() -> None:
+    if aura_module is None:
+        logger.error("Aura-specific module is unavailable: %s", _AURA_IMPORT_ERROR)
+        raise HTTPException(
+            status_code=503,
+            detail="Aura account and oversight features are unavailable because their optional module is missing.",
+        )
+
+
+def _create_aura_token(email: str, user_data: Any) -> str:
+    if not JWT_SECRET:
+        raise HTTPException(status_code=503, detail="Authentication is not configured.")
+    user_id = email
+    if isinstance(user_data, dict):
+        user_id = user_data.get("id") or user_data.get("user_id") or email
+    # Python-issued Aura tokens are user-scoped; master privileges come only from Node login.
+    return jwt.encode(
+        {"userId": user_id, "email": email, "role": "user", "aud": "aura-python"},
+        JWT_SECRET,
+        algorithm="HS256",
+    )
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -190,12 +254,21 @@ def _get_status() -> str:
 
 app = FastAPI(title="AI Bridge Server", version="1.0.0")
 
+_allowed_origins = {
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+}
+if os.getenv("FRONTEND_URL"):
+    _allowed_origins.add(os.getenv("FRONTEND_URL").strip())
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=sorted(_allowed_origins),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
@@ -221,8 +294,13 @@ async def _startup():
         new = _create_session("Default")
         _active_session_id = new["session_id"]
 
-    # Ensure Aura tables exist in the shared database
-    aura_module.aura_ensure_tables(DATA_DIR)
+    # Aura account/oversight features are optional in this repository snapshot.
+    if aura_module is not None:
+        aura_module.aura_ensure_tables(DATA_DIR)
+    else:
+        logger.warning("Aura account and oversight routes are disabled: aura_module.py is not present.")
+    if create_pdf_document is None:
+        logger.warning("PDF document generation is disabled: utils/pdf_generator.py is not present.")
 
     logger.info("Backend ready — active session: %s", _active_session_id)
 
@@ -235,7 +313,8 @@ async def health():
 
 
 @app.get("/api/settings")
-async def get_settings():
+async def get_settings(authorization: str | None = Header(default=None)):
+    _require_master(authorization)
     current = load_settings()
     # Mask sensitive keys for the frontend
     safe = {**current}
@@ -247,7 +326,8 @@ async def get_settings():
 
 
 @app.post("/api/settings")
-async def update_settings(payload: dict):
+async def update_settings(payload: dict, authorization: str | None = Header(default=None)):
+    _require_master(authorization)
     current = load_settings()
     # Only update keys that are not masked
     for k, v in payload.items():
@@ -277,7 +357,8 @@ async def get_avatar():
 # ─── PDF Serving & Generation Endpoints ─────────────────────────────────────
 
 @app.get("/api/pdf/list")
-async def list_pdf_files():
+async def list_pdf_files(authorization: str | None = Header(default=None)):
+    _require_master(authorization)
     """List all generated PDF documents in documents directory."""
     pdf_dir = Path("C:/Users/ay670/OneDrive/Desktop/myAI/documents")
     pdf_files = []
@@ -382,7 +463,8 @@ def generate_real_ai_image(prompt: str) -> tuple:
 
 
 @app.post("/api/image/generate")
-async def generate_image_endpoint(payload: dict):
+async def generate_image_endpoint(payload: dict, authorization: str | None = Header(default=None)):
+    _require_master(authorization)
     """Generate an AI image based on user prompt."""
     prompt = (payload.get("prompt") or "").strip()
     if not prompt:
@@ -416,9 +498,31 @@ async def get_generated_image(filename: str):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
-    logger.info("WebSocket client connected")
-
+    logger.info("WebSocket connected; awaiting master authentication")
     try:
+        try:
+            first_message = await asyncio.wait_for(ws.receive_text(), timeout=10)
+            auth_message = json.loads(first_message)
+            token = (auth_message.get("data") or {}).get("token", "")
+            if auth_message.get("type") != "auth":
+                raise ValueError("Authentication message required")
+            user = _decode_bearer_token("Bearer " + token)
+            is_master = bool(
+                MASTER_EMAIL
+                and str(user.get("email", "")).strip().lower() == MASTER_EMAIL
+                and user.get("role") == "master"
+            )
+            await _ws_send(
+                ws,
+                "auth.success",
+                {"email": user["email"], "role": "master" if is_master else "user"},
+            )
+        except Exception as auth_error:
+            logger.warning("WebSocket authentication rejected: %s", auth_error)
+            await _ws_send(ws, "auth.error", {"message": "Authentication failed."})
+            await ws.close(code=1008)
+            return
+
         while True:
             raw = await ws.receive_text()
             try:
@@ -426,39 +530,33 @@ async def websocket_endpoint(ws: WebSocket):
             except json.JSONDecodeError:
                 await _ws_send(ws, "error", {"message": "Invalid JSON"})
                 continue
-
             msg_type = msg.get("type", "")
             data = msg.get("data", {})
-            logger.info("WS ← %s  %s", msg_type, json.dumps(data)[:120])
+            logger.info("WS ← %s", msg_type)
+
+            # Non-master users may use the local microphone/speaker only.
+            # Chat and session history remain on the authenticated Node API.
+            if not is_master and msg_type not in {"voice.start", "voice.stop", "voice.speak", "status.get"}:
+                await _ws_send(ws, "error", {"message": "This local bridge action requires master access."})
+                continue
 
             try:
-                if msg_type == "chat.send":
-                    await _handle_chat_send(ws, data)
-                elif msg_type == "voice.start":
-                    await _handle_voice_start(ws)
-                elif msg_type == "voice.stop":
-                    await _handle_voice_stop(ws)
-                elif msg_type == "voice.speak":
-                    await _handle_voice_speak(ws, data)
-                elif msg_type == "status.get":
-                    await _handle_status_get(ws)
-                elif msg_type == "session.list":
-                    await _handle_session_list(ws)
-                elif msg_type == "session.create":
-                    await _handle_session_create(ws, data)
-                elif msg_type == "session.switch":
-                    await _handle_session_switch(ws, data)
-                elif msg_type == "history.get":
-                    await _handle_history_get(ws, data)
-                else:
-                    await _ws_send(ws, "error", {"message": f"Unknown type: {msg_type}"})
-            except Exception as e:
+                if msg_type == "chat.send": await _handle_chat_send(ws, data)
+                elif msg_type == "voice.start": await _handle_voice_start(ws)
+                elif msg_type == "voice.stop": await _handle_voice_stop(ws)
+                elif msg_type == "voice.speak": await _handle_voice_speak(ws, data)
+                elif msg_type == "status.get": await _handle_status_get(ws)
+                elif msg_type == "session.list": await _handle_session_list(ws)
+                elif msg_type == "session.create": await _handle_session_create(ws, data)
+                elif msg_type == "session.switch": await _handle_session_switch(ws, data)
+                elif msg_type == "history.get": await _handle_history_get(ws, data)
+                else: await _ws_send(ws, "error", {"message": "Unknown WebSocket message type."})
+            except Exception:
                 logger.exception("Handler error for %s", msg_type)
-                await _ws_send(ws, "error", {"message": str(e)})
-
+                await _ws_send(ws, "error", {"message": "Request could not be processed."})
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
-    except Exception as e:
+    except Exception:
         logger.exception("WebSocket fatal error")
 
 
@@ -587,9 +685,11 @@ async def _handle_voice_start(ws: WebSocket):
         recognised = None
 
     if recognised:
+        # The authenticated frontend forwards this transcript to the Node chat API,
+        # keeping the conversation in the signed-in user's own session.
         await _ws_send(ws, "voice.result", {"text": recognised})
-        # Auto-send to chat
-        await _handle_chat_send(ws, {"text": recognised, "session_id": _active_session_id})
+        _set_status("ready")
+        await _ws_send(ws, "status.update", {"status": "ready"})
     else:
         await _ws_send(ws, "voice.result", {"text": None, "error": "No speech detected"})
         _set_status("ready")
@@ -707,6 +807,7 @@ async def _handle_history_get(ws: WebSocket, data: dict):
 
 @app.post("/aura/auth/check_email")
 async def check_email_endpoint(payload: dict):
+    _require_aura_module()
     """Checks if email format/domain is valid and whether user exists."""
     email = (payload.get("email") or "").strip()
     exists, status_type, user_info = aura_module.check_user_email_status(DATA_DIR, email)
@@ -723,6 +824,7 @@ async def check_email_endpoint(payload: dict):
 
 @app.post("/aura/auth/login_password")
 async def login_password_endpoint(payload: dict):
+    _require_aura_module()
     """Authenticate or Register user with password."""
     email = (payload.get("email") or "").strip()
     password = (payload.get("password") or "").strip()
@@ -735,15 +837,19 @@ async def login_password_endpoint(payload: dict):
     if not success:
         return JSONResponse({"error": msg, "is_password_needed": is_pass_req}, status_code=400)
 
-    return {"status": "ok", "message": msg, "user": user_data}
+    token = _create_aura_token(email.strip().lower(), user_data)
+    return {"status": "ok", "message": msg, "user": user_data, "token": token}
 
 
 @app.post("/aura/auth/login")
 async def aura_login(payload: dict):
+    _require_aura_module()
     """Standard Login Endpoint."""
     email = (payload.get("email") or "").strip()
-    password = (payload.get("password") or "1234").strip()
+    password = (payload.get("password") or "").strip()
     name = (payload.get("name") or "").strip()
+    if not email or not password:
+        return JSONResponse({"error": "Email and password are required."}, status_code=400)
 
     success, msg, user_data, is_pass_req = aura_module.authenticate_user_with_password(
         DATA_DIR, email, password, name=name
@@ -752,23 +858,33 @@ async def aura_login(payload: dict):
     if not success:
         return JSONResponse({"error": msg}, status_code=400)
 
-    return {"status": "ok", "message": msg, "user": user_data}
+    token = _create_aura_token(email.strip().lower(), user_data)
+    return {"status": "ok", "message": msg, "user": user_data, "token": token}
 
 
 @app.get("/api/aleena/users_overview")
-async def aleena_users_overview(master_email: str = ""):
-    """Master oversight analytics endpoint for Aleena AI across all user databases."""
+async def aleena_users_overview(authorization: str | None = Header(default=None)):
+    _require_master(authorization)
+    _require_aura_module()
     return aura_module.get_aleena_master_analytics(DATA_DIR)
 
 
 @app.get("/api/aleena/user_conversations")
-async def get_user_conversations_endpoint(master_email: str = "", user_email: str = ""):
-    """Returns all chat sessions and message history of a specific user for Master Owner review."""
+async def get_user_conversations_endpoint(
+    user_email: str = "",
+    authorization: str | None = Header(default=None),
+):
+    _require_master(authorization)
+    _require_aura_module()
+    if not user_email.strip():
+        raise HTTPException(status_code=400, detail="user_email is required.")
     return aura_module.get_aleena_master_user_conversations(DATA_DIR, user_email)
 
 
 @app.post("/aura/chat")
-async def aura_chat(payload: dict):
+async def aura_chat(payload: dict, authorization: str | None = Header(default=None)):
+    user = _decode_bearer_token(authorization)
+    _require_aura_module()
     """
     Aura public chat endpoint with per-user isolated database routing.
     Accepts: {message: str, session_id: str, email: str}
@@ -776,7 +892,9 @@ async def aura_chat(payload: dict):
     """
     message = (payload.get("message") or "").strip()
     session_id = payload.get("session_id") or ""
-    email = payload.get("email") or ""
+    email = str(user.get("email", "")).strip().lower()
+    if not email:
+        raise HTTPException(status_code=401, detail="Authenticated email is missing.")
 
     if not message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
@@ -892,21 +1010,30 @@ async def aura_chat(payload: dict):
 
 
 @app.get("/aura/session/new")
-async def aura_new_session(email: str = None):
-    """Create a new Aura chat session in user's isolated database."""
-    session = aura_module.aura_create_session(DATA_DIR, email=email)
-    return session
+async def aura_new_session(authorization: str | None = Header(default=None)):
+    user = _decode_bearer_token(authorization)
+    _require_aura_module()
+    email = str(user.get("email", "")).strip().lower()
+    return aura_module.aura_create_session(DATA_DIR, email=email)
 
 
 @app.get("/aura/sessions")
-async def aura_get_sessions(email: str = None):
-    """List all Aura chat sessions for a specific user's isolated database."""
+async def aura_get_sessions(authorization: str | None = Header(default=None)):
+    user = _decode_bearer_token(authorization)
+    _require_aura_module()
+    email = str(user.get("email", "")).strip().lower()
     return {"sessions": aura_module.aura_list_sessions(DATA_DIR, email=email)}
 
 
 @app.get("/aura/history")
-async def aura_get_history(session_id: str, limit: int = 100, email: str = None):
-    """Get chat history from user's isolated database."""
+async def aura_get_history(
+    session_id: str,
+    limit: int = 100,
+    authorization: str | None = Header(default=None),
+):
+    user = _decode_bearer_token(authorization)
+    _require_aura_module()
+    email = str(user.get("email", "")).strip().lower()
     if not session_id:
         return JSONResponse({"error": "session_id required"}, status_code=400)
     messages = aura_module.aura_get_history(DATA_DIR, session_id, limit, email=email)
@@ -950,11 +1077,13 @@ except Exception:
 # ─── Entrypoint ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    logger.info("Starting AI Bridge Server on port 8765 …")
+    local_bridge_port = int(os.getenv("LOCAL_BRIDGE_PORT", "8766"))
+    local_bridge_host = os.getenv("LOCAL_BRIDGE_HOST", "127.0.0.1")
+    logger.info("Starting AI Bridge Server on %s:%s …", local_bridge_host, local_bridge_port)
     uvicorn.run(
         "web_server:app",
-        host="0.0.0.0",
-        port=8765,
+        host=local_bridge_host,
+        port=local_bridge_port,
         reload=False,
         log_level="info",
     )

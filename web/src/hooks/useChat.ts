@@ -35,7 +35,7 @@ interface ApiChatResponse {
    HOOK
    ========================================================= */
 
-export function useChat() {
+export function useChat(token: string | null = null) {
   const [
     messages,
     setMessages,
@@ -49,9 +49,7 @@ export function useChat() {
   const [
     currentSessionId,
     setCurrentSessionId,
-  ] = useState<string>(
-    'default-session'
-  );
+  ] = useState<string>('');
 
   const [
     streamingText,
@@ -68,11 +66,13 @@ export function useChat() {
       typeof setInterval
     > | null>(null);
 
+  const localBridgeWsUrl = process.env.NEXT_PUBLIC_LOCAL_BRIDGE_WS_URL || undefined;
   const {
     send,
     lastMessage,
     isConnected,
-  } = useWebSocket();
+    isVoiceConnected,
+  } = useWebSocket(undefined, token, localBridgeWsUrl);
 
   /* =======================================================
      API URL
@@ -93,6 +93,14 @@ export function useChat() {
         ''
       );
     }, []);
+
+  useEffect(() => {
+    setMessages([]);
+    setSessions([]);
+    setCurrentSessionId('');
+    setStreamingText('');
+    setIsStreaming(false);
+  }, [token]);
 
   /* =======================================================
      LOAD DATA AFTER SOCKET CONNECTION
@@ -175,6 +183,10 @@ export function useChat() {
         setIsStreaming(
           false
         );
+
+        if (data.session_id) {
+          setCurrentSessionId(data.session_id);
+        }
 
         if (finalText) {
           const newMessage: Message =
@@ -329,6 +341,10 @@ export function useChat() {
       }
 
       case 'history.data': {
+        if (data.session_id) {
+          setCurrentSessionId(data.session_id);
+        }
+
         if (
           Array.isArray(
             data.messages
@@ -362,6 +378,14 @@ export function useChat() {
           );
         }
 
+        break;
+      }
+
+      case 'voice.result': {
+        const recognizedText = (data.text || '').trim();
+        if (recognizedText && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('aleena-voice-result', { detail: recognizedText }));
+        }
         break;
       }
 
@@ -403,7 +427,7 @@ export function useChat() {
         const trimmed =
           content.trim();
 
-        if (!trimmed) {
+        if (!token || !trimmed) {
           return;
         }
 
@@ -519,6 +543,7 @@ export function useChat() {
                 headers: {
                   'Content-Type':
                     'application/json',
+                  Authorization: `Bearer ${token}`,
                 },
 
                 body: JSON.stringify({
@@ -657,6 +682,7 @@ export function useChat() {
         currentSessionId,
         getApiUrl,
         isConnected,
+        token,
         send,
       ]
     );
@@ -762,7 +788,7 @@ export function useChat() {
   const startVoice =
     useCallback(() => {
       if (
-        isConnected
+        isVoiceConnected
       ) {
         send({
           type:
@@ -772,14 +798,14 @@ export function useChat() {
         });
       }
     }, [
-      isConnected,
+      isVoiceConnected,
       send,
     ]);
 
   const stopVoice =
     useCallback(() => {
       if (
-        isConnected
+        isVoiceConnected
       ) {
         send({
           type:
@@ -789,7 +815,7 @@ export function useChat() {
         });
       }
     }, [
-      isConnected,
+      isVoiceConnected,
       send,
     ]);
 
