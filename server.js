@@ -200,7 +200,7 @@ function requireAuth(req, res, next) {
   }
 
   try {
-    const user = jwt.verify(token, JWT_SECRET);
+    const user = jwt.verify(token, JWT_SECRET, { audience: "aleena-node" });
     if (!user || !user.userId || !user.email) {
       return res.status(401).json({ error: "Invalid authentication token." });
     }
@@ -218,7 +218,7 @@ function createUserToken(user) {
   return jwt.sign(
     { userId: user.id, email: user.email },
     JWT_SECRET,
-    { expiresIn: "7d" }
+    { expiresIn: "7d", audience: "aleena-node" }
   );
 }
 
@@ -1158,7 +1158,7 @@ wss.on("connection", (ws) => {
         }
 
         try {
-          const user = jwt.verify(data.token, JWT_SECRET);
+          const user = jwt.verify(data.token, JWT_SECRET, { audience: "aleena-node" });
           if (!user || !user.userId || !user.email) throw new Error("Invalid token");
           ws.user = user;
           ws.send(JSON.stringify({ type: "auth.success", data: { email: user.email } }));
