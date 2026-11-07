@@ -55,6 +55,12 @@ async function runMigrations() {
       ON chat_sessions (user_id, created_at DESC);
     `);
 
+    // Upgrade databases created by earlier schema revisions.
+    await client.query(`
+      ALTER TABLE chat_sessions
+      ADD COLUMN IF NOT EXISTS user_id INT REFERENCES users(id) ON DELETE CASCADE;
+    `);
+
     // 3. Chat Messages Table
     await client.query(`
       CREATE TABLE IF NOT EXISTS chat_messages (
