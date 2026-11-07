@@ -151,6 +151,9 @@ if (GEMINI_API_KEY) {
    ========================================================= */
 
 const app = express();
+// Render terminates TLS and forwards one trusted proxy hop. This must be set
+// before express-rate-limit so forwarded client IPs are handled correctly.
+app.set("trust proxy", 1);
 const server = http.createServer(app);
 
 /* Security */
