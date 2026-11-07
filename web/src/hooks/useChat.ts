@@ -182,6 +182,10 @@ export function useChat(token: string | null = null) {
           false
         );
 
+        if (data.session_id) {
+          setCurrentSessionId(data.session_id);
+        }
+
         if (finalText) {
           const newMessage: Message =
             {
@@ -335,6 +339,10 @@ export function useChat(token: string | null = null) {
       }
 
       case 'history.data': {
+        if (data.session_id) {
+          setCurrentSessionId(data.session_id);
+        }
+
         if (
           Array.isArray(
             data.messages
