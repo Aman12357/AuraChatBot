@@ -46,6 +46,9 @@ const GEMINI_MODEL =
 
 const JWT_SECRET =
   process.env.JWT_SECRET;
+const AUTH_CONFIGURED = Boolean(
+  JWT_SECRET && Buffer.byteLength(JWT_SECRET, "utf8") >= 32
+);
 
 const MASTER_EMAIL = (process.env.MASTER_EMAIL || "").trim().toLowerCase();
 const MASTER_SETUP_KEY = process.env.MASTER_SETUP_KEY || "";
@@ -58,7 +61,7 @@ function safeSecretEquals(provided, expected) {
     crypto.timingSafeEqual(providedBuffer, expectedBuffer);
 }
 
-if (!JWT_SECRET) {
+if (!AUTH_CONFIGURED) {
   console.warn(
     "[SECURITY] JWT_SECRET is not configured. Login, chat, and WebSocket access will fail closed."
   );
@@ -1200,7 +1203,7 @@ wss.on("connection", (ws) => {
       const data = payload.data || {};
 
       if (!ws.user) {
-        if (type !== "auth" || !JWT_SECRET || !data.token) {
+        if (type !== "auth" || !AUTH_CONFIGURED || !data.token) {
           ws.send(JSON.stringify({
             type: "auth.error",
             data: { message: "Authentication required." },
