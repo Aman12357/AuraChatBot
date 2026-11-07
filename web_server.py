@@ -49,8 +49,8 @@ JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 MASTER_EMAIL = os.getenv("MASTER_EMAIL", "").strip().lower()
 
 def _decode_bearer_token(authorization: str | None) -> dict:
-    if not JWT_SECRET:
-        raise HTTPException(status_code=503, detail="Authentication is not configured.")
+    if not JWT_SECRET or len(JWT_SECRET.encode("utf-8")) < 32:
+        raise HTTPException(status_code=503, detail="Authentication requires a JWT_SECRET of at least 32 bytes.")
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
