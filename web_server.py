@@ -323,7 +323,8 @@ async def get_avatar():
 # ─── PDF Serving & Generation Endpoints ─────────────────────────────────────
 
 @app.get("/api/pdf/list")
-async def list_pdf_files():
+async def list_pdf_files(authorization: str | None = Header(default=None)):
+    _require_master(authorization)
     """List all generated PDF documents in documents directory."""
     pdf_dir = Path("C:/Users/ay670/OneDrive/Desktop/myAI/documents")
     pdf_files = []
@@ -428,7 +429,8 @@ def generate_real_ai_image(prompt: str) -> tuple:
 
 
 @app.post("/api/image/generate")
-async def generate_image_endpoint(payload: dict):
+async def generate_image_endpoint(payload: dict, authorization: str | None = Header(default=None)):
+    _require_master(authorization)
     """Generate an AI image based on user prompt."""
     prompt = (payload.get("prompt") or "").strip()
     if not prompt:
