@@ -928,6 +928,7 @@ app.post(
     const {
       email,
       password,
+      master_setup_key,
     } = req.body || {};
 
     if (
@@ -940,10 +941,16 @@ app.post(
     }
 
     try {
-      const normalizedEmail =
-        email
-          .trim()
-          .toLowerCase();
+      const normalizedEmail = email.trim().toLowerCase();
+
+      if (MASTER_EMAIL && normalizedEmail === MASTER_EMAIL) {
+        if (!MASTER_SETUP_KEY) {
+          return res.status(503).json({ error: "MASTER_SETUP_KEY is not configured on the backend." });
+        }
+        if (!safeSecretEquals(master_setup_key, MASTER_SETUP_KEY)) {
+          return res.status(403).json({ error: "Administrator login requires the access key." });
+        }
+      }
 
       let user = null;
       let passwordHash = null;
