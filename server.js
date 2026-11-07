@@ -12,6 +12,7 @@
  */
 
 const http = require("http");
+const crypto = require("crypto");
 const path = require("path");
 const express = require("express");
 const { WebSocketServer } = require("ws");
@@ -45,6 +46,17 @@ const GEMINI_MODEL =
 
 const JWT_SECRET =
   process.env.JWT_SECRET;
+
+const MASTER_EMAIL = (process.env.MASTER_EMAIL || "").trim().toLowerCase();
+const MASTER_SETUP_KEY = process.env.MASTER_SETUP_KEY || "";
+
+function safeSecretEquals(provided, expected) {
+  if (typeof provided !== "string" || !provided || !expected) return false;
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(expected);
+  return providedBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+}
 
 if (!JWT_SECRET) {
   console.warn(
@@ -224,7 +236,11 @@ function createUserToken(user) {
     throw new Error("Authentication is not configured.");
   }
   return jwt.sign(
-    { userId: user.id, email: user.email },
+    {
+      userId: user.id,
+      email: user.email,
+      role: MASTER_EMAIL && user.email.toLowerCase() === MASTER_EMAIL ? "master" : "user",
+    },
     JWT_SECRET,
     { expiresIn: "7d", audience: "aleena-node" }
   );
@@ -775,6 +791,7 @@ app.post(
       email,
       password,
       name,
+      master_setup_key,
     } = req.body || {};
 
     if (
@@ -791,6 +808,15 @@ app.post(
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
+
+      if (MASTER_EMAIL && normalizedEmail === MASTER_EMAIL) {
+        if (!MASTER_SETUP_KEY) {
+          return res.status(503).json({ error: "MASTER_SETUP_KEY is not configured on the backend." });
+        }
+        if (!safeSecretEquals(master_setup_key, MASTER_SETUP_KEY)) {
+          return res.status(403).json({ error: "Administrator registration requires the setup key." });
+        }
+      }
 
       const passwordHash =
         await bcrypt.hash(
