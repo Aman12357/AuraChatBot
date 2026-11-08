@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private lateinit var pcBaseUrl: EditText
     private lateinit var pcFingerprint: EditText
+    private lateinit var pcPairingKey: EditText
     private lateinit var email: EditText
     private lateinit var password: EditText
     private lateinit var key: EditText
@@ -135,8 +136,11 @@ class MainActivity : AppCompatActivity() {
         pcBaseUrl.setText(SecurePrefs.get(this, AleenaApi.KEY_PC_BASE_URL))
         pcFingerprint = field("PC certificate SHA-256 fingerprint (64 hex characters)")
         pcFingerprint.setText(SecurePrefs.get(this, AleenaApi.KEY_PC_CERT_SHA256))
+        pcPairingKey = field("Local PC pairing key", secret = true)
+        pcPairingKey.setText(SecurePrefs.get(this, AleenaApi.KEY_PC_PAIRING_KEY))
         root.addView(pcBaseUrl)
         root.addView(pcFingerprint)
+        root.addView(pcPairingKey)
         root.addView(action("Save secure PC connection") { savePcConnection() })
         root.addView(action("Check PC connection") { checkPcConnection() })
         root.addView(action("Forget PC connection") {
@@ -148,6 +152,7 @@ class MainActivity : AppCompatActivity() {
                     AleenaApi.clearPcConnection(this)
                     pcBaseUrl.text.clear()
                     pcFingerprint.text.clear()
+                    pcPairingKey.text.clear()
                     show("PC connection and account token cleared from this phone.")
                 }
                 .show()
@@ -302,7 +307,8 @@ class MainActivity : AppCompatActivity() {
         val result = AleenaApi.savePcConnection(
             this,
             pcBaseUrl.text.toString(),
-            pcFingerprint.text.toString()
+            pcFingerprint.text.toString(),
+            pcPairingKey.text.toString()
         )
         result.fold(
             { show("Secure PC address and certificate fingerprint saved in encrypted phone storage. Tap Check PC connection to verify the PC is running.") },
@@ -314,7 +320,8 @@ class MainActivity : AppCompatActivity() {
         val result = AleenaApi.savePcConnection(
             this,
             pcBaseUrl.text.toString(),
-            pcFingerprint.text.toString()
+            pcFingerprint.text.toString(),
+            pcPairingKey.text.toString()
         )
         if (result.isFailure) {
             show(result.exceptionOrNull()?.message ?: "Enter a valid secure PC address and fingerprint.")
