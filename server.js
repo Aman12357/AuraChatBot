@@ -117,7 +117,7 @@ function hasPersistentDatabase() {
 }
 
 async function queryDatabase(sql, parameters = []) {
-  if (pool) return queryDatabase(sql, parameters);
+  if (pool) return pool.query(sql, parameters);
   if (localDatabase) return localDatabase.query(sql, parameters);
   throw new Error("No persistent database is available.");
 }
