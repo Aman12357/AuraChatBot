@@ -4,15 +4,38 @@
  */
 
 const { Pool } = require('pg');
+const path = require('path');
+const { createLocalDatabase } = require('../local_database');
 require('dotenv').config();
 
 async function runMigrations() {
   const databaseUrl = process.env.DATABASE_URL;
+  const databaseMode = (
+    process.env.DATABASE_MODE || (databaseUrl ? 'postgres' : 'sqlite')
+  ).toLowerCase();
+
+  if (databaseMode === 'sqlite') {
+    const localDb = await createLocalDatabase({
+      directory: process.env.ALEENA_DATA_DIR || path.join(__dirname, '..', 'data'),
+      filename: 'aleena.sqlite',
+    });
+    console.log('[MIGRATE] Local SQLite database is ready:', localDb.path);
+    console.log('[MIGRATE] Integrity check:', localDb.integrityCheck());
+    localDb.close();
+    return;
+  }
+
+  if (databaseMode === 'memory') {
+    console.log('[MIGRATE] In-memory mode selected. No persistent migration is needed.');
+    return;
+  }
+
+  if (databaseMode !== 'postgres') {
+    throw new Error('Unsupported DATABASE_MODE: ' + databaseMode);
+  }
 
   if (!databaseUrl || databaseUrl.includes('@host/') || databaseUrl.includes('dpg-xxxxxx')) {
-    console.log('[MIGRATE] Note: Placeholder/dummy DATABASE_URL detected. Skipping PostgreSQL migration locally.');
-    console.log('[MIGRATE] On Render deployment, real DATABASE_URL will execute migrations automatically.');
-    return;
+    throw new Error('DATABASE_MODE=postgres requires a valid DATABASE_URL.');
   }
 
   console.log('[MIGRATE] Connecting to PostgreSQL database...');
