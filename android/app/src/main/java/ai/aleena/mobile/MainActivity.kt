@@ -177,7 +177,7 @@ class MainActivity : AppCompatActivity() {
         })
         root.addView(action("More PC-version speech languages") { chooseSpeechLanguage() })
         root.addView(action("Android text-to-speech voice settings") {
-            runCatching { startActivity(Intent(Settings.ACTION_TTS_SETTINGS)) }
+            runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
                 .onFailure { show("Open Android Settings and search for Text-to-speech output.") }
         })
 
