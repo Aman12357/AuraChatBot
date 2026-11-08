@@ -4,12 +4,13 @@ import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import ai.aleena.mobile.R
+import ai.aleena.mobile.MainActivity
 import ai.aleena.mobile.security.SecurePrefs
 import org.json.JSONArray
 import org.json.JSONObject
@@ -183,8 +184,14 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
                 CHANNEL_ID, "Aleena reminders", NotificationManager.IMPORTANCE_HIGH
             ))
         }
+        val openApp = PendingIntent.getActivity(
+            context, id.hashCode(),
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentIntent(openApp)
             .setContentTitle("Aleena reminder")
             .setContentText(reminder.message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(reminder.message))
