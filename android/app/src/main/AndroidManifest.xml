@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
  <uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.RECORD_AUDIO"/>
  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
- <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+ <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/><uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
  <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent><intent><action android:name="android.speech.RecognitionService"/></intent></queries>
  <application android:allowBackup="false" android:label="Aleena Mobile" android:theme="@style/AppTheme" android:usesCleartextTraffic="false">
   <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
@@ -34,5 +34,9 @@
     <action android:name="android.service.notification.NotificationListenerService"/>
    </intent-filter>
   </service>
+  <receiver android:name=".productivity.ReminderAlarmReceiver" android:exported="false"/>
+  <receiver android:name=".productivity.ReminderBootReceiver" android:enabled="true" android:exported="false">
+   <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter>
+  </receiver>
  </application>
 </manifest>
