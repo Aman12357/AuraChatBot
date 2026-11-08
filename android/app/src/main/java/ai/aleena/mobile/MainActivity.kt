@@ -140,6 +140,11 @@ class MainActivity : AppCompatActivity() {
             SecurePrefs.put(this, AssistantService.KEY_LANGUAGE, "hi-IN")
             show("Language set to Hindi (India).")
         })
+        root.addView(action("More PC-version speech languages") { chooseSpeechLanguage() })
+        root.addView(action("Android text-to-speech voice settings") {
+            runCatching { startActivity(Intent(Settings.ACTION_TTS_SETTINGS)) }
+                .onFailure { show("Open Android Settings and search for Text-to-speech output.") }
+        })
 
         root.addView(heading("WhatsApp activity"))
         root.addView(heading(
@@ -180,6 +185,27 @@ class MainActivity : AppCompatActivity() {
         ))
 
         setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    private fun chooseSpeechLanguage() {
+        val labels = arrayOf(
+            "English (India)", "Hindi (India)", "Tamil", "Telugu", "Bengali",
+            "Marathi", "Gujarati", "Punjabi", "Urdu", "French", "German",
+            "Spanish", "Arabic", "Chinese", "Japanese"
+        )
+        val tags = arrayOf(
+            "en-IN", "hi-IN", "ta-IN", "te-IN", "bn-IN",
+            "mr-IN", "gu-IN", "pa-IN", "ur-PK", "fr-FR", "de-DE",
+            "es-ES", "ar-AE", "zh-CN", "ja-JP"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Choose speech language")
+            .setItems(labels) { _, index ->
+                SecurePrefs.put(this, AssistantService.KEY_LANGUAGE, tags[index])
+                show("Speech language set to ${labels[index]}. The Android speech and TTS providers must support this language.")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun signIn() {
