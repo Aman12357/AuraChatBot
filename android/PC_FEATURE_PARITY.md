@@ -22,7 +22,7 @@ This document compares the desktop implementation in `main.py`, `web_server.py` 
 | Market, options, gold and backtesting | `main.py` lazily imports `market_intelligence.*` | Not ported | The `market_intelligence` package is not present in the inspected repository tree |
 | Image generation | AIClient has Gemini Imagen calls; FastAPI also has a Pollinations image endpoint | Not ported to Android client | Existing Android Node API has no mobile image-generation route; needs a deliberate API/provider integration |
 | PDF generation | FastAPI attempts `utils.pdf_generator` import | Not verified / unavailable in PC bridge | Startup explicitly reports PDF generation disabled when the module is absent |
-| 3D digital human, VRM room, emotions, gestures, lip-sync and eye tracking | `web/src/components/Avatar/**` and `web/public/avatar.vrm` | Not ported to native screen yet | Can be embedded or rebuilt for mobile after Android core functions are reliable; requires performance and lifecycle work |
+| 3D digital human, VRM room, emotions, gestures, lip-sync and eye tracking | `web/src/components/Avatar/**` and `web/public/avatar.vrm` | Not ported to native Android; hosted WebView is disabled in local-only mode | It must be served by the local PC HTTPS companion and use the paired API origin before it can be enabled without crossing the local-data boundary |
 | Face login | PC settings include `face_login_enabled` and backup PIN | Not implemented | The inspected PC source only exposes settings fields; no face-recognition implementation was found |
 
 ## Android feature work added in this branch
