@@ -30,7 +30,7 @@ All these runtime files are ignored by Git. Keep a separate backup of the local 
 ## Windows setup
 
 1. Install Node.js 18.3 or newer and Python 3.12.
-2. Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey). Never paste the key into GitHub or a public chat.
+2. Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey). The example uses `gemini-3.6-flash`; confirm that this model is available in your AI Studio project. Never paste the key into GitHub or a public chat.
 3. In the repository root, create `.env` only if it does not already exist:
    ```cmd
    if not exist .env copy .env.example .env
@@ -44,7 +44,7 @@ All these runtime files are ignored by Git. Keep a separate backup of the local 
    DATABASE_URL=
    AI_PROVIDER=gemini
    GEMINI_API_KEY=your_private_key
-   GEMINI_MODEL=gemini-3.8-flash
+   GEMINI_MODEL=gemini-3.6-flash
    HOST=127.0.0.1
    ```
    Generate a private JWT secret with:
