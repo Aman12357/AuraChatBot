@@ -31,6 +31,12 @@ object EventRepository {
         }
     }
 
+    fun clear(context: Context) {
+        synchronized(lock) {
+            SecurePrefs.put(context, KEY_HISTORY, "[]")
+        }
+    }
+
     fun recent(context: Context, limit: Int = 50): List<ActivityEvent> {
         synchronized(lock) {
             val array = readArray(context)
