@@ -132,6 +132,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(action("Sign in to Aleena") { signIn() })
         root.addView(action("Sign out") {
             SecurePrefs.put(this, AssistantService.KEY_TOKEN, "")
+            SecurePrefs.put(this, AssistantService.KEY_SESSION_ID, "")
             show("Signed out. Your local wake-word settings and activity history remain on this device.")
         })
 
@@ -280,6 +281,7 @@ class MainActivity : AppCompatActivity() {
                 result.fold(
                     { pair ->
                         SecurePrefs.put(this, AssistantService.KEY_TOKEN, pair.first)
+                        SecurePrefs.put(this, AssistantService.KEY_SESSION_ID, "")
                         show("Signed in as ${pair.second}.")
                     },
                     { error -> show(error.message ?: "Sign-in failed. Check your connection and account details.") }
@@ -307,15 +309,18 @@ class MainActivity : AppCompatActivity() {
             val contextText = relevantMemories.joinToString("\\n") { "- ${it.fact}" }
             "The user explicitly opted in to sharing these relevant saved memories with Aleena AI:\\n$contextText\\n\\nUser request: $message"
         }
-        AleenaApi.chat(token, requestText) { result ->
+        val sessionId = SecurePrefs.get(this, AssistantService.KEY_SESSION_ID).takeIf { it.isNotBlank() }
+        AleenaApi.chat(token, requestText, sessionId) { result ->
             runOnUiThread {
                 chatInput.isEnabled = true
                 result.fold(
                     { reply ->
-                        chatOutput.text = "You: $message\n\nAleena: $reply"
+                        if (reply.sessionId.isNotBlank()) SecurePrefs.put(this, AssistantService.KEY_SESSION_ID, reply.sessionId)
+                        chatOutput.text = "You: $message\n\nAleena: ${reply.response}"
                         chatInput.text.clear()
                     },
                     { error ->
+                        if (error.message?.contains("session", ignoreCase = true) == true) SecurePrefs.put(this, AssistantService.KEY_SESSION_ID, "")
                         chatOutput.text = "You: $message\n\nAleena could not reply: ${error.message ?: "Unknown error"}"
                     }
                 )
