@@ -204,9 +204,9 @@ if (AI_PROVIDER === "gemini" && GEMINI_API_KEY) {
    ========================================================= */
 
 const app = express();
-// Render terminates TLS and forwards one trusted proxy hop. This must be set
-// before express-rate-limit so forwarded client IPs are handled correctly.
-app.set("trust proxy", 1);
+// Render terminates TLS and forwards one trusted proxy hop in production.
+// The local PC/LAN listeners are direct connections and must not trust user-supplied X-Forwarded-* headers.
+app.set("trust proxy", NODE_ENV === "production" ? 1 : 0);
 const server = http.createServer(app);
 
 /* Security */
