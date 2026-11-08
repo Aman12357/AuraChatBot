@@ -52,6 +52,13 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildScreen()
+        if (intent?.action == Intent.ACTION_ASSIST) requestStartVoice()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == Intent.ACTION_ASSIST) requestStartVoice()
     }
 
     private fun buildScreen() {
@@ -154,6 +161,10 @@ class MainActivity : AppCompatActivity() {
         root.addView(action("Stop voice assistant") {
             stopService(Intent(this, AssistantService::class.java))
             show("Voice assistant stopped.")
+        })
+        root.addView(action("Set Aleena as default Android assistant") {
+            runCatching { startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)) }
+                .onFailure { show("Open Android Settings > Apps > Default apps > Digital assistant app and select Aleena.") }
         })
 
         status = heading(
