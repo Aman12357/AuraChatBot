@@ -60,7 +60,9 @@ class AnnouncementManager(context: Context) : TextToSpeech.OnInitListener {
     }
 
     private fun allowSpeech(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            notificationManager.isNotificationPolicyAccessGranted
+        ) {
             return notificationManager.currentInterruptionFilter ==
                 NotificationManager.INTERRUPTION_FILTER_ALL
         }
