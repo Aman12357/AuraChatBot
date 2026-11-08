@@ -44,12 +44,12 @@ Android speech recognition may use the device's configured recognition provider.
 - Phone-native controls: media volume, mute/unmute, camera, dialer, alarm UI, Maps/navigation, system settings, battery/RAM status, web search and common website shortcuts.
 - WhatsApp draft composition that requires the user to review and press Send.
 - WhatsApp notification summaries and metadata-only local activity history.
-- A WebView entry point to the original hosted PC Next.js/3D avatar companion; its HTTPS URL is editable in the Android screen.
+- The hosted 3D WebView has been disabled in this local-only mobile build so it cannot route a conversation through the old Render web/backend path.
 - Selectable Android `VoiceInteractionService` entry point.
 
 ## Limits and setup requirements
 - The PC VRM avatar is opened through the existing hosted web companion, not reimplemented as a native Kotlin 3D scene.
-- The hosted web companion must be deployed and reachable. The default address is `https://aleena-ai-web.onrender.com`; the user can edit it in the app.
+- The VRM avatar and 3D room are not yet served through the secure local PC listener, so the Android 3D companion screen is intentionally disabled rather than loading a hosted Render URL.
 - Porcupine AccessKey and custom model are required for the **Hey Aleena** wake phrase.
 - System-wide always-on custom hotword integration is not claimed. Android's microphone foreground-service rules and Xiaomi HyperOS battery/autostart policies may affect background listening.
 - WhatsApp notification access only exposes notification content provided by Android and WhatsApp. Personal-account typing indicators are not provided by `NotificationListenerService`.
