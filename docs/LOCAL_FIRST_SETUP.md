@@ -89,11 +89,32 @@ On startup, the desktop application now migrates any saved provider selection su
 
 If the Gemini API key is missing or its quota is exhausted, AI responses will report the Gemini configuration/service issue. The assistant will not silently switch to another AI provider.
 
-## Android and web status
+## Secure Android-to-PC pairing
 
-The PC and browser development stack can use the PC's local SQLite database. The Android app still uses its existing configured API base URL; secure phone-to-PC pairing over the local network is a separate unfinished step. Do not change the Android base URL to a guessed IP address or expose the PC API to public networks.
+The Android client can connect to the PC-local Node API over a second, optional HTTPS listener. The ordinary PC/browser API remains bound to loopback, and the Android listener is disabled unless you explicitly enable it.
 
-Until pairing is implemented and tested, Android chat must not be described as using the PC's SQLite database. The PC must be powered on for future phone-to-PC sync.
+1. Install the project Python requirements so the `cryptography` package is present.
+2. From the repository root, run:
+   ```cmd
+   python scripts/generate_local_tls.py
+   ```
+   The script creates `data/local-server-cert.pem` and `data/local-server-key.pem`, prints the PC's discovered private LAN addresses, and prints the certificate SHA-256 fingerprint. These files are local secrets and are ignored by Git.
+3. In the private root `.env`, keep `DATABASE_MODE=sqlite`, `DATABASE_URL=`, `AI_PROVIDER=gemini`, and configure `GEMINI_API_KEY`. Enable the mobile listener with:
+   ```env
+   LOCAL_LAN_ENABLED=true
+   LOCAL_LAN_HOST=0.0.0.0
+   LOCAL_LAN_PORT=8767
+   LOCAL_TLS_CERT_FILE=./data/local-server-cert.pem
+   LOCAL_TLS_KEY_FILE=./data/local-server-key.pem
+   ```
+   Keep the ordinary `HOST=127.0.0.1` so the web API is not unnecessarily exposed to the LAN.
+4. Restart Aleena on the PC. Allow the Node process through Windows Defender Firewall only for your **Private** home network. Do not allow it on Public networks.
+5. On Android, enter the exact PC address (for example `https://192.168.1.20:8767`) and the 64-character SHA-256 fingerprint printed by the PC script. Save the connection and run **Check PC connection**.
+6. Sign in with the account created in the PC-local Aleena web application. The local PC database is the account authority for this setup.
+
+The Android client trusts only the exact certificate fingerprint stored in encrypted Android preferences. HTTPS hostname validation is still enforced against the certificate's subject-alternative names. If the PC certificate is regenerated, copy the new fingerprint to the phone again. The PC and phone must be on the same trusted Wi-Fi; this pairing is not an internet relay or remote-access service.
+
+Android chat is sent over the LAN to the PC. The PC then sends the prompt and relevant recent conversation context to Gemini for inference. Chat history is stored on the PC's SQLite file, while phone settings, authentication token, tasks, reminders and explicit core memories remain in Android app-private storage. Gemini itself is not local: prompts leave the PC to reach Google's API.
 
 ## Data safety
 
