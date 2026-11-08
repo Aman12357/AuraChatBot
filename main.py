@@ -117,6 +117,12 @@ except ImportError:
 # CONFIGURATION & MAPPINGS
 # ══════════════════════════════════════════════════════════════════════════════
 BASE_DIR   = Path(__file__).parent
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env", override=False)
+except ImportError:
+    logger.warning("python-dotenv is not installed; GEMINI_API_KEY must be set in the process environment.")
+
 DATA_DIR   = BASE_DIR / "data"
 AUDIO_DIR  = BASE_DIR / "audio"
 CONFIG_FILE = DATA_DIR / "settings.json"
@@ -139,7 +145,7 @@ DEFAULT_SETTINGS = {
     "custom_logo_path": "",           # Path to custom sidebar logo image
     "wake_word": "hey assistant",
     "ai_provider": "gemini",
-    "gemini_model": "gemini-3.1-flash-lite",
+    "gemini_model": "gemini-3.6-flash",
     "face_login_enabled": False,
     "face_backup_pin": "",
     "startup_clip_path": "",
@@ -1023,7 +1029,7 @@ class AIClient:
             self.settings["ai_provider"] = "gemini"
             save_settings(self.settings)
         self.provider = "gemini"
-        self.gemini_model = self.settings.get("gemini_model", "gemini-3.1-flash-lite")
+        self.gemini_model = self.settings.get("gemini_model", "gemini-3.6-flash")
         gemini_key = self.settings.get("gemini_api_key", "")
         if gemini_key:
             try:
@@ -1914,7 +1920,7 @@ If nothing relevant is found, return empty lists.
                 
             # List of model candidates we can try in order if the active one fails
             candidates = [
-                "gemini-3.1-flash-lite",
+                "gemini-3.6-flash",
                 "gemini-2.5-flash",
                 "gemini-2.0-flash-lite",
                 "gemini-2.0-flash",
