@@ -40,6 +40,9 @@ const LOCAL_LAN_PORT = Number(process.env.LOCAL_LAN_PORT || 8767);
 const LOCAL_LAN_HOST = process.env.LOCAL_LAN_HOST || "0.0.0.0";
 const LOCAL_TLS_CERT_FILE = path.resolve(process.env.LOCAL_TLS_CERT_FILE || path.join(__dirname, "data", "local-server-cert.pem"));
 const LOCAL_TLS_KEY_FILE = path.resolve(process.env.LOCAL_TLS_KEY_FILE || path.join(__dirname, "data", "local-server-key.pem"));
+const LOCAL_PAIRING_KEY_FILE = path.resolve(
+  process.env.LOCAL_PAIRING_KEY_FILE || path.join(__dirname, "data", "local-pairing.key")
+);
 
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "http://localhost:3000";
@@ -248,6 +251,29 @@ const apiLimiter = rateLimit({
 });
 
 app.use("/api/", apiLimiter);
+
+// The TLS listener is reachable on the home LAN only when explicitly enabled.
+// Require a second, locally generated pairing key in addition to certificate pinning.
+// Use socket.encrypted rather than req.secure so forwarded headers cannot bypass this check.
+app.use("/api/", (req, res, next) => {
+  if (!LOCAL_LAN_ENABLED || !req.socket.encrypted) return next();
+
+  let expected = "";
+  try {
+    expected = fs.readFileSync(LOCAL_PAIRING_KEY_FILE, "utf8").trim();
+  } catch (_) {
+    return res.status(503).json({
+      error: "Local pairing is not configured. Run: python scripts/generate_local_tls.py",
+    });
+  }
+
+  const provided = req.get("X-Aleena-Pairing-Key") || "";
+  if (!safeSecretEquals(provided, expected)) {
+    return res.status(403).json({ error: "This device is not paired with the Aleena PC." });
+  }
+
+  return next();
+});
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
