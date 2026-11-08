@@ -51,16 +51,13 @@ const GEMINI_API_KEY =
 
 const GEMINI_MODEL =
   process.env.GEMINI_MODEL || "gemini-3.8-flash";
-const AI_PROVIDER = (
-  process.env.AI_PROVIDER || (NODE_ENV === "production" ? "gemini" : "ollama")
-).toLowerCase();
-const OLLAMA_BASE_URL = (
-  process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-).replace(/\/$/, "");
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "deepseek-r1:8b";
+const AI_PROVIDER = (process.env.AI_PROVIDER || "gemini").toLowerCase();
+if (AI_PROVIDER !== "gemini") {
+  throw new Error("Unsupported AI_PROVIDER. Aleena is configured to use Gemini only.");
+}
 
 function getActiveModel() {
-  return AI_PROVIDER === "ollama" ? OLLAMA_MODEL : GEMINI_MODEL;
+  return GEMINI_MODEL;
 }
 
 const JWT_SECRET =
@@ -546,54 +543,6 @@ async function generateAIResponse(
   sessionId,
   userId
 ) {
-  // Local-first mode: call only the Ollama server on this machine.
-  // Do not fall through to Gemini, Pollinations or another hosted service.
-  if (AI_PROVIDER === "ollama") {
-    try {
-      const history = await getHistory(sessionId, userId, 20);
-      const previousMessages = history.length > 0 ? history.slice(0, -1) : [];
-      const messages = [
-        { role: "system", content: SYSTEM_PROMPT },
-        ...previousMessages.map((item) => ({
-          role: item.role === "user" ? "user" : "assistant",
-          content: item.content || "",
-        })),
-        { role: "user", content: message },
-      ];
-
-      const response = await fetch(OLLAMA_BASE_URL + "/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: OLLAMA_MODEL,
-          messages,
-          stream: false,
-        }),
-        signal: AbortSignal.timeout(120000),
-      });
-
-      if (!response.ok) {
-        throw new Error("Ollama returned HTTP " + response.status);
-      }
-
-      const payload = await response.json();
-      const responseText = payload?.message?.content?.trim();
-      if (!responseText) {
-        throw new Error("Ollama returned an empty response.");
-      }
-
-      console.log("[AI] Local Ollama response generated using " + OLLAMA_MODEL + ".");
-      return responseText;
-    } catch (error) {
-      console.error("[AI] Local Ollama request failed:", error.message);
-      return (
-        "I could not reach your local Ollama model at " + OLLAMA_BASE_URL +
-        ". Start Ollama and make sure the model is installed. Run: ollama pull " +
-        OLLAMA_MODEL +
-        ". No cloud AI fallback was used."
-      );
-    }
-  }
   /*
    1. Gemini
   */
@@ -674,78 +623,7 @@ async function generateAIResponse(
   }
 
   /*
-   2. Optional Pollinations fallback
-  */
-
-  try {
-    const history =
-      await getHistory(
-        sessionId,
-        userId,
-        6
-      );
-
-    const messagesPayload = [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT,
-      },
-
-      ...history
-        .slice(0, -1)
-        .map((item) => ({
-          role:
-            item.role === "user"
-              ? "user"
-              : "assistant",
-          content:
-            item.content || "",
-        })),
-
-      {
-        role: "user",
-        content: message,
-      },
-    ];
-
-    const response =
-      await fetch(
-        "https://text.pollinations.ai/",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            messages:
-              messagesPayload,
-            model: "openai",
-          }),
-        }
-      );
-
-    if (response.ok) {
-      const text =
-        await response.text();
-
-      if (text && text.trim()) {
-        console.log(
-          "[AI] Pollinations fallback response received."
-        );
-
-        return text.trim();
-      }
-    }
-  } catch (error) {
-    console.error(
-      "[AI] Pollinations fallback failed:",
-      error.message
-    );
-  }
-
-  /*
-   3. Safe local fallback
+   Safe local fallback when Gemini is not configured or unavailable.
   */
 
   const lower =
@@ -813,7 +691,7 @@ app.get(
       database,
       database_mode: DATABASE_MODE,
       ai_provider: AI_PROVIDER,
-      ai_provider_configured: AI_PROVIDER === "ollama" || Boolean(genAI),
+      ai_provider_configured: Boolean(genAI),
       model: getActiveModel(),
       timestamp:
         new Date().toISOString(),
@@ -829,37 +707,6 @@ app.get(
   "/api/ai-test",
   requireAuth,
   async (req, res) => {
-    if (AI_PROVIDER === "ollama") {
-      try {
-        const response = await fetch(OLLAMA_BASE_URL + "/api/tags", {
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!response.ok) {
-          throw new Error("Ollama returned HTTP " + response.status);
-        }
-        const payload = await response.json();
-        const installed = (payload.models || []).some((item) =>
-          item.name === OLLAMA_MODEL || item.name?.startsWith(OLLAMA_MODEL + ":")
-        );
-        return res.json({
-          status: installed ? "ok" : "model-not-installed",
-          provider: AI_PROVIDER,
-          model: OLLAMA_MODEL,
-          installed,
-          message: installed
-            ? "Local Ollama is reachable and the configured model is installed."
-            : "Ollama is reachable, but the configured model is not installed. Run: ollama pull " + OLLAMA_MODEL,
-        });
-      } catch (error) {
-        return res.status(503).json({
-          status: "error",
-          provider: AI_PROVIDER,
-          model: OLLAMA_MODEL,
-          message: "Local Ollama is unavailable at " + OLLAMA_BASE_URL + ": " + error.message,
-        });
-      }
-    }
-
     if (!genAI) {
       return res.status(503).json({
         status: "error",
