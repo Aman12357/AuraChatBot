@@ -1,15 +1,15 @@
 {
   "name": "aleena-ai-backend",
   "version": "1.0.0",
-  "description": "Production Node.js & Express Backend for Aleena AI with PostgreSQL and WebSocket Support",
+  "description": "Local-first Aleena AI backend with SQLite, optional PostgreSQL and WebSocket support",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "migrate": "node scripts/migrate.js"
+    "migrate": "node scripts/migrate.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
- 
     "@google/genai": "^2.25.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -19,12 +19,13 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.13.1",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "sql.js": "^1.15.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.3.0"
   }
 }
