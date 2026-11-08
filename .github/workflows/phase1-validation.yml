@@ -30,6 +30,9 @@ jobs:
       - name: Check backend JavaScript syntax
         run: node --check server.js
 
+      - name: Run backend tests
+        run: npm test
+
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
         working-directory: web
