@@ -67,6 +67,42 @@ object PhoneActions {
                 launch(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(place))))
                 "Opening directions for $place."
             }
+            command.startsWith("weather in ") || command == "weather" -> {
+                val city = if (command == "weather") "" else value.substringAfter("weather in ").trim()
+                val query = if (city.isBlank()) "weather near me" else "weather in $city"
+                launch(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query))))
+                "Opening current weather search for $query."
+            }
+            command.startsWith("news ") || command == "news" -> {
+                val topic = if (command == "news") "" else value.substringAfter("news ").trim()
+                val url = if (topic.isBlank()) "https://news.google.com" else "https://news.google.com/search?q=" + Uri.encode(topic)
+                launch(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                "Opening Google News."
+            }
+            command.startsWith("translate ") -> {
+                val text = value.substringAfter("translate ").trim()
+                if (text.isBlank()) return null
+                launch(Intent(Intent.ACTION_VIEW, Uri.parse("https://translate.google.com/?text=" + Uri.encode(text))))
+                "Opening Google Translate."
+            }
+            command in setOf("open youtube", "open google", "open gmail", "open facebook", "open instagram", "open x", "open twitter", "open linkedin", "open reddit", "open github", "open wikipedia", "open netflix", "open amazon", "open flipkart", "open google drive", "open google photos", "open google calendar", "open google meet", "open chatgpt", "open gemini", "open whatsapp web") -> {
+                val key = command.removePrefix("open ")
+                val sites = mapOf(
+                    "youtube" to "https://youtube.com", "google" to "https://google.com",
+                    "gmail" to "https://mail.google.com", "facebook" to "https://facebook.com",
+                    "instagram" to "https://instagram.com", "x" to "https://x.com",
+                    "twitter" to "https://x.com", "linkedin" to "https://linkedin.com",
+                    "reddit" to "https://reddit.com", "github" to "https://github.com",
+                    "wikipedia" to "https://wikipedia.org", "netflix" to "https://netflix.com",
+                    "amazon" to "https://amazon.in", "flipkart" to "https://flipkart.com",
+                    "google drive" to "https://drive.google.com", "google photos" to "https://photos.google.com",
+                    "google calendar" to "https://calendar.google.com", "google meet" to "https://meet.google.com",
+                    "chatgpt" to "https://chatgpt.com", "gemini" to "https://gemini.google.com",
+                    "whatsapp web" to "https://web.whatsapp.com"
+                )
+                launch(Intent(Intent.ACTION_VIEW, Uri.parse(sites[key] ?: return null)))
+                "Opening $key."
+            }
             command.startsWith("search web ") || command.startsWith("search for ") || command.startsWith("google ") -> {
                 val query = when {
                     command.startsWith("search web ") -> value.substring(11).trim()
