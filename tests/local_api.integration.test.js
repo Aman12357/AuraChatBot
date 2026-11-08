@@ -78,27 +78,10 @@ test("local API uses SQLite and the local Ollama endpoint", async () => {
 
   try {
     const ollamaPort = await listen(mockOllama);
-    const appPort = await listen(http.createServer());
-    // Release the probe port before starting the real app.
-    // The short-lived reservation avoids hard-coding a developer port.
-    const probePort = appPort;
-    // Close the probe immediately; the spawned service binds to the released port.
-    // (The probe server is kept only long enough to obtain an available port.)
-    // This is deliberately separate from the Ollama mock listener.
-    // The probe server instance is obtained below through a second helper.
-    void probePort;
-  } catch (error) {
-    await closeServer(mockOllama);
-    fs.rmSync(dataDirectory, { recursive: true, force: true });
-    throw error;
-  }
+    const appProbe = http.createServer();
+    const appPort = await listen(appProbe);
+    await closeServer(appProbe);
 
-  const appProbe = http.createServer();
-  const appPort = await listen(appProbe);
-  await closeServer(appProbe);
-  const ollamaPort = mockOllama.address().port;
-
-  try {
     const env = {
       ...process.env,
       NODE_ENV: "development",
