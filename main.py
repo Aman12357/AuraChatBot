@@ -135,10 +135,10 @@ DEFAULT_SETTINGS = {
     "stt_language": "en-IN",          # Supports Hindi-English mix
     "use_elevenlabs": False,
     "use_minimax": False,
-    "voice_engine": "edgetts",        # "edgetts" | "offline" | "gtts" | "elevenlabs" | "minimax"
+    "voice_engine": "offline",        # "edgetts" | "offline" | "gtts" | "elevenlabs" | "minimax"
     "custom_logo_path": "",           # Path to custom sidebar logo image
     "wake_word": "hey assistant",
-    "ai_provider": "gemini",
+    "ai_provider": "ollama",
     "gemini_model": "gemini-3.1-flash-lite",
     "groq_api_key": "",
     "groq_model": "llama-3.3-70b-versatile",
@@ -855,6 +855,43 @@ Provide a cohesive and detailed response in Hindi/Hinglish/English as appropriat
             logger.error(f"Multi-agent orchestration error: {e}")
             return f"Failed to complete task via multi-agent network: {e}"
 
+class DisabledInternetManager:
+    """Safe placeholder when the optional internet integration package is absent."""
+    available = False
+
+    def intelligent_research(self, topic: str) -> str:
+        return "Internet research is unavailable because the optional internet_social_manager package is not installed."
+
+    def search_google(self, query: str, limit: int = 4):
+        return None
+
+    def summarize_page(self, url: str) -> str:
+        return "Website summarization is unavailable because the optional internet integration is not installed."
+
+    def get_weather(self, city: str) -> dict:
+        return {"error": "Weather lookup is unavailable because the optional integration is not installed."}
+
+    def get_news(self, query=None, limit: int = 5):
+        return None
+
+
+class DisabledSocialMediaManager:
+    """Safe placeholder; it never pretends to publish or schedule content."""
+    available = False
+
+    def create_post(self, platform: str, content: str):
+        return False, "Social publishing is not configured. No post was sent."
+
+    def schedule_post(self, platform: str, content: str, post_time: str):
+        return None
+
+    def get_notifications_and_comments(self):
+        return None
+
+    def generate_daily_report(self) -> str:
+        return "Social reporting is unavailable because the optional social integration is not installed."
+
+
 class AIClient:
     def __init__(self, settings: dict, on_model_switch=None):
         self.settings = settings
@@ -864,10 +901,19 @@ class AIClient:
         self.latest_image_path = None
         self._in_orchestrator = False
         
-        from internet_social_manager.internet_access import InternetManager
-        from internet_social_manager.social_media import SocialMediaManager
-        self.internet_manager = InternetManager(self)
-        self.social_manager = SocialMediaManager(self)
+        try:
+            from internet_social_manager.internet_access import InternetManager
+            from internet_social_manager.social_media import SocialMediaManager
+            self.internet_manager = InternetManager(self)
+            self.social_manager = SocialMediaManager(self)
+        except ModuleNotFoundError as exc:
+            logger.warning(
+                "Optional internet/social integrations are unavailable (%s). "
+                "Core local assistant features will continue to load.",
+                exc.name,
+            )
+            self.internet_manager = DisabledInternetManager()
+            self.social_manager = DisabledSocialMediaManager()
         
         self.update_client()
         self.start_continuous_learning_engine()
@@ -976,7 +1022,7 @@ class AIClient:
             self.settings = settings
         if on_model_switch:
             self.on_model_switch = on_model_switch
-        self.provider = self.settings.get("ai_provider", "gemini")
+        self.provider = self.settings.get("ai_provider", "ollama")
         self.gemini_model = self.settings.get("gemini_model", "gemini-3.1-flash-lite")
         self.groq_api_key = self.settings.get("groq_api_key", "")
         self.groq_model = self.settings.get("groq_model", "deepseek-r1-distill-llama-70b")
@@ -1481,7 +1527,9 @@ If nothing relevant is found, return empty lists.
         if text_lower.startswith("/websearch "):
             query = text[11:].strip()
             results = self.internet_manager.search_google(query, limit=4)
-            if results:
+            if results is None:
+                res = "❌ Web search integration is not installed."
+            elif results:
                 res = "🔍 **Background Web Search Results:**\n\n" + "\n\n".join(
                     f"**{r['title']}**\n{r['url']}\n*{r['snippet']}*" for r in results
                 )
@@ -1518,7 +1566,9 @@ If nothing relevant is found, return empty lists.
         if text_lower.startswith("/news ") or text_lower == "/news":
             query = text[6:].strip() if text_lower.startswith("/news ") else None
             news = self.internet_manager.get_news(query, limit=5)
-            if news:
+            if news is None:
+                res = "❌ News integration is not installed."
+            elif news:
                 res = "📰 **Latest Aggregated News:**\n\n" + "\n\n".join(
                     f"**{n['title']}**\nSource: {n['source']} | Date: {n['pub_date']}\nLink: {n['url']}" for n in news
                 )
@@ -1551,7 +1601,10 @@ If nothing relevant is found, return empty lists.
             if len(parts) == 3:
                 platform, post_time, content = parts[0].strip().lower(), parts[1].strip(), parts[2].strip()
                 post = self.social_manager.schedule_post(platform, content, post_time)
-                res = f"📅 **Post Scheduled Successfully!**\n- Platform: {platform.title()}\n- Time: {post_time}\n- Post ID: #{post['id']}\n- Content: \"{content}\""
+                if post is None:
+                    res = "⚠️ Social scheduling is unavailable. No post was scheduled."
+                else:
+                    res = f"📅 **Post Scheduled Successfully!**\n- Platform: {platform.title()}\n- Time: {post_time}\n- Post ID: #{post['id']}\n- Content: \"{content}\""
             else:
                 res = "⚠️ Invalid format. Use: `/schedule <platform> | <YYYY-MM-DD HH:MM> | <content>`"
             self._history.append({"role": "user", "content": text, "image_path": image_path})
@@ -1562,7 +1615,9 @@ If nothing relevant is found, return empty lists.
 
         if text_lower == "/notifications" or text_lower == "check notifications":
             items = self.social_manager.get_notifications_and_comments()
-            if items:
+            if items is None:
+                res = "⚠️ Social notifications are unavailable because the integration is not installed."
+            elif items:
                 res = "🔔 **Recent Notifications & Comments:**\n\n" + "\n".join(
                     f"- [{i['platform'].upper()}] {i['user']} on *\"{i['post']}\"*: \"{i['text']}\"" for i in items
                 )

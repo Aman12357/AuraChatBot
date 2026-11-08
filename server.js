@@ -23,6 +23,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { Pool } = require("pg");
 const { GoogleGenAI } = require("@google/genai");
+const { createLocalDatabase } = require("./local_database");
 
 require("dotenv").config();
 
@@ -37,12 +38,30 @@ const FRONTEND_URL =
   process.env.FRONTEND_URL || "http://localhost:3000";
 
 const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_MODE = (
+  process.env.DATABASE_MODE ||
+  (DATABASE_URL ? "postgres" : (NODE_ENV === "production" ? "memory" : "sqlite"))
+).toLowerCase();
+const ALEENA_DATA_DIR = path.resolve(
+  process.env.ALEENA_DATA_DIR || path.join(__dirname, "data")
+);
 
 const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY;
 
 const GEMINI_MODEL =
   process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const AI_PROVIDER = (
+  process.env.AI_PROVIDER || (NODE_ENV === "production" ? "gemini" : "ollama")
+).toLowerCase();
+const OLLAMA_BASE_URL = (
+  process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
+).replace(/\/$/, "");
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "deepseek-r1:8b";
+
+function getActiveModel() {
+  return AI_PROVIDER === "ollama" ? OLLAMA_MODEL : GEMINI_MODEL;
+}
 
 const JWT_SECRET =
   process.env.JWT_SECRET;
@@ -68,12 +87,13 @@ if (!AUTH_CONFIGURED) {
 }
 
 /* =========================================================
-   DATABASE
+   DATABASE — local SQLite by default, optional PostgreSQL
    ========================================================= */
 
 let pool = null;
+let localDatabase = null;
 
-if (DATABASE_URL) {
+if (DATABASE_MODE === "postgres" && DATABASE_URL) {
   pool = new Pool({
     connectionString: DATABASE_URL,
     ssl:
@@ -81,12 +101,39 @@ if (DATABASE_URL) {
         ? { rejectUnauthorized: false }
         : false,
   });
-
   console.log("[DATABASE] PostgreSQL pool initialized.");
+} else if (DATABASE_MODE === "sqlite") {
+  console.log("[DATABASE] Local SQLite mode selected.");
+} else if (DATABASE_MODE === "memory") {
+  console.warn("[DATABASE] In-memory mode selected; data will not survive a restart.");
+} else if (DATABASE_MODE === "postgres") {
+  console.warn("[DATABASE] PostgreSQL mode selected without DATABASE_URL; using in-memory fallback.");
 } else {
-  console.warn(
-    "[DATABASE] DATABASE_URL not configured. Using in-memory development fallback."
-  );
+  throw new Error("Unsupported DATABASE_MODE. Use sqlite, postgres or memory.");
+}
+
+function hasPersistentDatabase() {
+  return Boolean(pool || localDatabase);
+}
+
+async function queryDatabase(sql, parameters = []) {
+  if (pool) return pool.query(sql, parameters);
+  if (localDatabase) return localDatabase.query(sql, parameters);
+  throw new Error("No persistent database is available.");
+}
+
+async function initializeDatabase() {
+  if (DATABASE_MODE === "sqlite") {
+    localDatabase = await createLocalDatabase({
+      directory: ALEENA_DATA_DIR,
+      filename: "aleena.sqlite",
+    });
+    const integrity = localDatabase.integrityCheck();
+    if (integrity !== "ok") {
+      throw new Error("Local Aleena SQLite integrity check failed: " + integrity);
+    }
+    console.log("[DATABASE] SQLite ready: " + localDatabase.path);
+  }
 }
 
 /* =========================================================
@@ -124,7 +171,7 @@ Communication rules:
 - If you are uncertain, say so clearly.
 `;
 
-if (GEMINI_API_KEY) {
+if (AI_PROVIDER === "gemini" && GEMINI_API_KEY) {
   try {
     genAI = new GoogleGenAI({
       apiKey: GEMINI_API_KEY,
@@ -141,9 +188,7 @@ if (GEMINI_API_KEY) {
     genAI = null;
   }
 } else {
-  console.warn(
-    "[AI] GEMINI_API_KEY is not configured."
-  );
+  console.log(`[AI] Provider selected: ${AI_PROVIDER}; model: ${getActiveModel()}.`);
 }
 
 /* =========================================================
@@ -309,8 +354,8 @@ function detectEmotion(text) {
    ========================================================= */
 
 async function getUserSession(sessionId, userId) {
-  if (pool) {
-    const result = await pool.query(
+  if (hasPersistentDatabase()) {
+    const result = await queryDatabase(
       `SELECT session_id, title, created_at
        FROM chat_sessions
        WHERE session_id = $1 AND user_id = $2
@@ -328,8 +373,8 @@ async function getUserSession(sessionId, userId) {
 }
 
 async function listSessions(userId) {
-  if (pool) {
-    const result = await pool.query(
+  if (hasPersistentDatabase()) {
+    const result = await queryDatabase(
       `SELECT session_id, title, created_at
        FROM chat_sessions
        WHERE user_id = $1
@@ -363,8 +408,8 @@ async function createSession(userId, title = null) {
     created_at: new Date().toISOString(),
   };
 
-  if (pool) {
-    const result = await pool.query(
+  if (hasPersistentDatabase()) {
+    const result = await queryDatabase(
       `INSERT INTO chat_sessions (session_id, user_id, title)
        VALUES ($1, $2, $3)
        RETURNING session_id, title, created_at`,
@@ -391,8 +436,8 @@ async function saveMessage(sessionId, userId, role, content, emotion = "neutral"
     throw error;
   }
 
-  if (pool) {
-    await pool.query(
+  if (hasPersistentDatabase()) {
+    await queryDatabase(
       `INSERT INTO chat_messages (session_id, role, content, emotion)
        VALUES ($1, $2, $3, $4)`,
       [sessionId, role, content, emotion]
@@ -422,8 +467,8 @@ async function getHistory(sessionId, userId, limit = 100) {
     throw error;
   }
 
-  if (pool) {
-    const result = await pool.query(
+  if (hasPersistentDatabase()) {
+    const result = await queryDatabase(
       `SELECT m.id, m.session_id, m.role, m.content, m.emotion, m.timestamp
        FROM chat_messages m
        INNER JOIN chat_sessions s ON s.session_id = m.session_id
@@ -501,6 +546,54 @@ async function generateAIResponse(
   sessionId,
   userId
 ) {
+  // Local-first mode: call only the Ollama server on this machine.
+  // Do not fall through to Gemini, Pollinations or another hosted service.
+  if (AI_PROVIDER === "ollama") {
+    try {
+      const history = await getHistory(sessionId, userId, 20);
+      const previousMessages = history.length > 0 ? history.slice(0, -1) : [];
+      const messages = [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...previousMessages.map((item) => ({
+          role: item.role === "user" ? "user" : "assistant",
+          content: item.content || "",
+        })),
+        { role: "user", content: message },
+      ];
+
+      const response = await fetch(OLLAMA_BASE_URL + "/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: OLLAMA_MODEL,
+          messages,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(120000),
+      });
+
+      if (!response.ok) {
+        throw new Error("Ollama returned HTTP " + response.status);
+      }
+
+      const payload = await response.json();
+      const responseText = payload?.message?.content?.trim();
+      if (!responseText) {
+        throw new Error("Ollama returned an empty response.");
+      }
+
+      console.log("[AI] Local Ollama response generated using " + OLLAMA_MODEL + ".");
+      return responseText;
+    } catch (error) {
+      console.error("[AI] Local Ollama request failed:", error.message);
+      return (
+        "I could not reach your local Ollama model at " + OLLAMA_BASE_URL +
+        ". Start Ollama and make sure the model is installed. Run: ollama pull " +
+        OLLAMA_MODEL +
+        ". No cloud AI fallback was used."
+      );
+    }
+  }
   /*
    1. Gemini
   */
@@ -531,7 +624,7 @@ async function generateAIResponse(
         );
 
       const request = {
-        model: GEMINI_MODEL,
+        model: getActiveModel(),
         contents: [
           ...contents,
           {
@@ -699,11 +792,11 @@ async function generateAIResponse(
 app.get(
   "/api/health",
   async (req, res) => {
-    let database = "disconnected";
+    let database = DATABASE_MODE === "memory" ? "memory" : "disconnected";
 
-    if (pool) {
+    if (hasPersistentDatabase()) {
       try {
-        await pool.query(
+        await queryDatabase(
           "SELECT 1"
         );
 
@@ -718,11 +811,10 @@ app.get(
       service: "Aleena AI",
       environment: NODE_ENV,
       database,
-      gemini:
-        genAI
-          ? "configured"
-          : "not-configured",
-      model: GEMINI_MODEL,
+      database_mode: DATABASE_MODE,
+      ai_provider: AI_PROVIDER,
+      ai_provider_configured: AI_PROVIDER === "ollama" || Boolean(genAI),
+      model: getActiveModel(),
       timestamp:
         new Date().toISOString(),
     });
@@ -737,12 +829,42 @@ app.get(
   "/api/ai-test",
   requireAuth,
   async (req, res) => {
+    if (AI_PROVIDER === "ollama") {
+      try {
+        const response = await fetch(OLLAMA_BASE_URL + "/api/tags", {
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!response.ok) {
+          throw new Error("Ollama returned HTTP " + response.status);
+        }
+        const payload = await response.json();
+        const installed = (payload.models || []).some((item) =>
+          item.name === OLLAMA_MODEL || item.name?.startsWith(OLLAMA_MODEL + ":")
+        );
+        return res.json({
+          status: installed ? "ok" : "model-not-installed",
+          provider: AI_PROVIDER,
+          model: OLLAMA_MODEL,
+          installed,
+          message: installed
+            ? "Local Ollama is reachable and the configured model is installed."
+            : "Ollama is reachable, but the configured model is not installed. Run: ollama pull " + OLLAMA_MODEL,
+        });
+      } catch (error) {
+        return res.status(503).json({
+          status: "error",
+          provider: AI_PROVIDER,
+          model: OLLAMA_MODEL,
+          message: "Local Ollama is unavailable at " + OLLAMA_BASE_URL + ": " + error.message,
+        });
+      }
+    }
+
     if (!genAI) {
-      return res.status(500).json({
+      return res.status(503).json({
         status: "error",
-        message:
-          "GEMINI_API_KEY is not configured.",
-        model: GEMINI_MODEL,
+        message: "Gemini is selected but GEMINI_API_KEY is not configured.",
+        model: getActiveModel(),
       });
     }
 
@@ -750,7 +872,7 @@ app.get(
       const response =
         await genAI.models.generateContent(
           {
-            model: GEMINI_MODEL,
+            model: getActiveModel(),
             contents:
               "Reply with exactly: ALEENA GEMINI WORKING",
             config: {
@@ -761,7 +883,7 @@ app.get(
 
       res.json({
         status: "ok",
-        model: GEMINI_MODEL,
+        model: getActiveModel(),
         response:
           response.text || "",
       });
@@ -773,7 +895,7 @@ app.get(
 
       res.status(500).json({
         status: "error",
-        model: GEMINI_MODEL,
+        model: getActiveModel(),
         message:
           error.message,
       });
@@ -830,9 +952,9 @@ app.post(
           10
         );
 
-      if (pool) {
+      if (hasPersistentDatabase()) {
         const existing =
-          await pool.query(
+          await queryDatabase(
             "SELECT id FROM users WHERE email = $1",
             [normalizedEmail]
           );
@@ -847,7 +969,7 @@ app.post(
         }
 
         const result =
-          await pool.query(
+          await queryDatabase(
             `
             INSERT INTO users
               (email, password_hash, name)
@@ -961,9 +1083,9 @@ app.post(
       let user = null;
       let passwordHash = null;
 
-      if (pool) {
+      if (hasPersistentDatabase()) {
         const result =
-          await pool.query(
+          await queryDatabase(
             `
             SELECT
               id,
@@ -1077,8 +1199,8 @@ app.post(
 app.get("/api/auth/me", requireAuth, async (req, res) => {
   try {
     let user = null;
-    if (pool) {
-      const result = await pool.query(
+    if (hasPersistentDatabase()) {
+      const result = await queryDatabase(
         "SELECT id, email, name FROM users WHERE id = $1",
         [req.user.userId]
       );
@@ -1135,7 +1257,7 @@ app.post(
         response: reply,
         session_id: activeSessionId,
         emotion,
-        model: GEMINI_MODEL,
+        model: getActiveModel(),
       });
     } catch (error) {
       console.error("[CHAT] Error:", error.message);
@@ -1158,8 +1280,8 @@ app.get(
       voice_volume: 1,
       stt_language:
         "en-IN",
-      model:
-        GEMINI_MODEL,
+      provider: AI_PROVIDER,
+      model: getActiveModel(),
     });
   }
 );
@@ -1377,7 +1499,8 @@ app.get(
    ========================================================= */
 
 async function startServer() {
-  // User sessions are created only after successful authentication.
+  // Initialize local persistence before accepting authenticated requests.
+  await initializeDatabase();
 
   server.listen(
     PORT,
@@ -1391,19 +1514,29 @@ async function startServer() {
         `[SERVER] Environment: ${NODE_ENV}`
       );
 
-      console.log(
-        `[SERVER] Gemini model: ${GEMINI_MODEL}`
-      );
-
-      console.log(
-        `[SERVER] Gemini configured: ${
-          genAI
-            ? "YES"
-            : "NO"
-        }`
-      );
+      console.log(`[SERVER] Database mode: ${DATABASE_MODE}`);
+      console.log(`[SERVER] AI provider: ${AI_PROVIDER}; model: ${getActiveModel()}`);
     }
   );
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error("[SERVER] Startup failed:", error);
+  process.exit(1);
+});
+
+async function shutdown() {
+  server.close(async () => {
+    try {
+      if (localDatabase) localDatabase.close();
+      if (pool) await pool.end();
+    } catch (error) {
+      console.error("[SERVER] Shutdown error:", error.message);
+    } finally {
+      process.exit(0);
+    }
+  });
+}
+
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);
