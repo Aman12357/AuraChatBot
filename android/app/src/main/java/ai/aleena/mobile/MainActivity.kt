@@ -1,8 +1,10 @@
 package ai.aleena.mobile
 import ai.aleena.mobile.network.AleenaApi
+import ai.aleena.mobile.events.EventRepository
 import ai.aleena.mobile.security.SecurePrefs
 import ai.aleena.mobile.voice.AssistantService
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -15,6 +17,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import java.io.File
+import java.text.DateFormat
+import java.util.Date
 class MainActivity:AppCompatActivity(){
  private lateinit var status:TextView;private lateinit var email:EditText;private lateinit var password:EditText;private lateinit var key:EditText
  private val pick=registerForActivityResult(ActivityResultContracts.OpenDocument()){u:Uri?->if(u!=null)installModel(u)}
@@ -35,6 +39,7 @@ class MainActivity:AppCompatActivity(){
   root.addView(text("Message summaries use WhatsApp notifications exposed by Android. Typing indicators are not included in this notification feed.",13f))
   root.addView(button("Enable WhatsApp notification access"){startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))})
   root.addView(button("Check WhatsApp access"){show(if(notificationAccessEnabled()) "WhatsApp notification access is enabled." else "Enable Aleena in Android notification access settings.")})
+  root.addView(button("View recent WhatsApp activity"){showActivityHistory()})
   root.addView(text("Assistant controls",20f));root.addView(button("Start voice assistant"){start()});root.addView(button("Stop voice assistant"){stopService(Intent(this,AssistantService::class.java));show("Assistant stopped.")})
   status=text("Sign in, configure wake-word credentials and model, then start listening.");root.addView(status)
   root.addView(text("Wake-word detection runs on-device. Speech recognition uses your configured Android speech provider; AI chat uses your Aleena backend."))
@@ -57,6 +62,17 @@ class MainActivity:AppCompatActivity(){
   ContextCompat.startForegroundService(this,Intent(this,AssistantService::class.java));show("Starting Aleena. Keep the persistent notification enabled.")
  }
  private fun permissions(){val p=mutableListOf(Manifest.permission.RECORD_AUDIO);if(Build.VERSION.SDK_INT>=33)p+=Manifest.permission.POST_NOTIFICATIONS;val m=p.filter{ContextCompat.checkSelfPermission(this,it)!=PackageManager.PERMISSION_GRANTED};if(m.isNotEmpty())requestPermissions(m.toTypedArray(),42)}
+ private fun showActivityHistory(){
+  val events=EventRepository.recent(this,30)
+  val message=if(events.isEmpty()) "No WhatsApp activity has been recorded yet." else events.joinToString("\n\n"){event->
+   val heading=if(event.type=="CALL") "WhatsApp call: ${event.sender}" else "${event.count} message(s): ${event.sender}"
+   val time=DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(event.timestamp))
+   "$heading\n${event.conversation}\n$time"
+  }
+  AlertDialog.Builder(this).setTitle("Recent WhatsApp activity").setMessage(message)
+   .setNeutralButton("Clear history"){_,_->EventRepository.clear(this);show("Activity history cleared.")}
+   .setPositiveButton("Close",null).show()
+ }
  private fun notificationAccessEnabled():Boolean {
   val enabled=Settings.Secure.getString(contentResolver,"enabled_notification_listeners")?:return false
   return enabled.split(":").any{ComponentName.unflattenFromString(it)?.packageName==packageName}
