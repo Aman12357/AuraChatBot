@@ -6,6 +6,7 @@ The private key and certificate are written under data/ and are ignored by Git.
 from __future__ import annotations
 
 import ipaddress
+import secrets
 import socket
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 CERT_PATH = DATA_DIR / "local-server-cert.pem"
 KEY_PATH = DATA_DIR / "local-server-key.pem"
+PAIRING_KEY_PATH = DATA_DIR / "local-pairing.key"
 
 
 def local_ipv4_addresses() -> set[str]:
@@ -94,15 +96,21 @@ def main() -> None:
     ))
     CERT_PATH.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
 
+    # Keep an existing pairing key so users do not have to re-pair every restart.
+    if not PAIRING_KEY_PATH.exists():
+        PAIRING_KEY_PATH.write_text(secrets.token_urlsafe(32), encoding="utf-8")
+
     fingerprint = certificate.fingerprint(hashes.SHA256()).hex()
+    pairing_key = PAIRING_KEY_PATH.read_text(encoding="utf-8").strip()
     print("\nALEENA LOCAL TLS CERTIFICATE CREATED")
     print(f"Certificate: {CERT_PATH}")
     print(f"Private key: {KEY_PATH}")
     print(f"SHA-256 fingerprint (copy exactly into Android):\n{fingerprint}")
+    print(f"\nLOCAL PAIRING KEY (copy exactly into Android; keep private):\n{pairing_key}")
     print("\nLocal PC addresses discovered:")
     for address in sorted(addresses):
         print(f"  https://{address}:8767")
-    print("\nKeep the private key on this PC. Never upload either PEM file to GitHub.")
+    print("\nKeep the private key on this PC. Never upload either PEM file or local-pairing.key to GitHub.")
     print("If your PC changes Wi-Fi adapter or IP address, rerun this script and update the app pin if the certificate is regenerated.")
 
 
