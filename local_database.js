@@ -54,7 +54,7 @@ function normalizeSql(sql) {
 
   // The existing cloud API uses PostgreSQL positional placeholders ($1, $2).
   // Convert them to SQLite positional placeholders without changing parameters.
-  return sql.replace(/\\$\\d+/g, "?");
+  return sql.replace(/\$\d+/g, "?");
 }
 
 async function createLocalDatabase(options = {}) {
