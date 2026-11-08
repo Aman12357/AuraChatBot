@@ -60,7 +60,14 @@ class AssistantService:Service(),TextToSpeech.OnInitListener {
    val memoryContext=relevant.joinToString("\\n"){ "- "+it.fact }
    "The user has explicitly enabled sharing selected saved memories with Aleena AI. Use this context only when relevant:\\n$memoryContext\\n\\nUser request: $text"
   }
-  AleenaApi.chat(token,prompt){result->main.post{result.fold({say(it)},{say("I could not reach Aleena. Check your connection and try again.")})}}
+   val sessionId=SecurePrefs.get(this,KEY_SESSION_ID).takeIf{it.isNotBlank()}
+   AleenaApi.chat(token,prompt,sessionId){result->main.post{result.fold({reply->
+    if(reply.sessionId.isNotBlank()) SecurePrefs.put(this,KEY_SESSION_ID,reply.sessionId)
+    say(reply.response)
+   },{error->
+    if(error.message?.contains("session",ignoreCase=true)==true) SecurePrefs.put(this,KEY_SESSION_ID,"")
+    say(error.message?: "I could not reach Aleena. Check your connection and try again.")
+   })}}
  }
  private fun say(text:String){
   notify("Aleena is replying…")
@@ -95,5 +102,5 @@ class AssistantService:Service(),TextToSpeech.OnInitListener {
  private fun notification(message:String)=NotificationCompat.Builder(this,"aleena_voice").setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentTitle("Aleena is active").setContentText(message).setContentIntent(PendingIntent.getActivity(this,0,Intent(this,MainActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).setOngoing(true).setPriority(NotificationCompat.PRIORITY_LOW).build()
  private fun notify(message:String){getSystemService(NotificationManager::class.java).notify(4107,notification(message))}
  override fun onDestroy(){stopWake();speech?.destroy();tts?.stop();tts?.shutdown();super.onDestroy()}
- companion object{const val KEY_TOKEN="api_token";const val KEY_ACCESS="picovoice_access_key";const val KEY_LANGUAGE="speech_language";const val KEY_MEMORY_SHARE="memory_cloud_context_opt_in";const val MODEL="hey_aleena_android.ppn"}
+ companion object{const val KEY_TOKEN="api_token";const val KEY_ACCESS="picovoice_access_key";const val KEY_LANGUAGE="speech_language";const val KEY_MEMORY_SHARE="memory_cloud_context_opt_in";const val KEY_SESSION_ID="chat_session_id";const val MODEL="hey_aleena_android.ppn"}
 }
