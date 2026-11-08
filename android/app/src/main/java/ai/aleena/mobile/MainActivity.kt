@@ -177,8 +177,9 @@ class MainActivity : AppCompatActivity() {
             show("Language set to Hindi (India).")
         })
         root.addView(action("More PC-version speech languages") { chooseSpeechLanguage() })
-        root.addView(action("Android text-to-speech voice settings") {
+        root.addView(action("Android speech settings") {
             runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                .onSuccess { show("In Android Settings, search for Text-to-speech output to configure the installed speech engine and voice data.") }
                 .onFailure { show("Open Android Settings and search for Text-to-speech output.") }
         })
 
