@@ -40,11 +40,12 @@ All these runtime files are ignored by Git. Keep a separate backup of the local 
    ```cmd
    ollama pull deepseek-r1:8b
    ```
-5. In the repository root:
+5. In the repository root, create `.env` only if it does not already exist:
    ```cmd
-   copy .env.example .env
+   if not exist .env copy .env.example .env
    ```
-6. Edit `.env`. Keep `DATABASE_MODE=sqlite`, `AI_PROVIDER=ollama`, and `DATABASE_URL=`. Set a private `JWT_SECRET` with at least 32 random characters. Do not commit `.env`.
+   If `.env` already exists, back it up and edit only the local-mode settings. Do not overwrite existing secrets or production configuration blindly.
+6. Edit `.env`. For a local install, set `NODE_ENV=development`, `DATABASE_MODE=sqlite`, `AI_PROVIDER=ollama`, `OLLAMA_BASE_URL=http://127.0.0.1:11434`, `OLLAMA_MODEL=deepseek-r1:8b`, and keep `DATABASE_URL=` blank. Set a private `JWT_SECRET` with at least 32 random characters. Do not commit `.env`.
    Generate a secret with Python:
    ```cmd
    python -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -79,6 +80,10 @@ All these runtime files are ignored by Git. Keep a separate backup of the local 
 - Weather, news, internet research, online translation, social publishing and external media generation naturally require internet services. They are optional integrations, not prerequisites for local chat/storage.
 - Local models use disk, RAM and CPU/GPU resources. Their quality and speed depend on the computer and the chosen model.
 - This does not require a paid API key, subscription or cloud database.
+
+## Existing PC settings
+
+Changing the default values in `main.py` affects new installations only. If this PC already has `data/settings.json`, the saved `ai_provider` and `voice_engine` settings take precedence. Open the PC Aleena Settings panel and select Ollama for the AI provider and Offline for the voice engine; do not delete `data/settings.json` to force defaults.
 
 ## Android and web status
 
