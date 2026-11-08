@@ -40,7 +40,7 @@ The current starter uses fewer packages. Refactoring into this layout will be in
 - Picovoice custom keyword model: app-private files only; never commit it.
 - WhatsApp notification previews: transient processing only; never upload by default.
 - WhatsApp activity history: metadata only, encrypted local storage, user-clearable.
-- Chat text: sent only to the existing authenticated Aleena API after the user speaks or submits it. The existing backend persists chat messages.
+- Chat text: sent only after the user submits or speaks. The phone uses certificate-pinned HTTPS to the paired PC; the PC stores chat in its local SQLite database and sends the prompt/context to Gemini for inference.
 - No new backend endpoints, database tables, Render settings or Neon changes are required for the mobile client.
 
 ## Core runtime flows
