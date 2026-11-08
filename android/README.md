@@ -1,53 +1,72 @@
 # Aleena Mobile (Android)
-Native Android companion for AuraChatBot. Isolated from existing Next.js, Express, Python and Neon services.
 
-## Target
-- Device target: Xiaomi Redmi 13 5G, Android 16 (real-device validation remains required).
-- Kotlin, Android foreground microphone service, Porcupine, Android SpeechRecognizer and TextToSpeech.
-- Existing backend: https://aleena-ai-backend.onrender.com
-- Existing API: POST /api/auth/login and authenticated POST /api/chat.
+Native Android companion for AuraChatBot. This module is isolated from the PC web app, Node/Python backend source, Render configuration and Neon database.
 
-## Build
-1. Open this android/ folder in Android Studio.
-2. Install Android SDK Platform 36 and JDK 17.
-3. Sync Gradle and install on the Redmi with USB debugging enabled.
+## Target and build
+- Target device: Xiaomi Redmi 13 5G, Android 16. Real-device validation is still required.
+- Kotlin, Android SDK 36, JDK 17, Porcupine Android, Android SpeechRecognizer, TextToSpeech, encrypted preferences and OkHttp.
+- Open the `android/` folder in Android Studio, install Android SDK Platform 36 and JDK 17, sync Gradle, then build `:app:assembleDebug`.
+- GitHub Actions builds and uploads `aleena-mobile-debug` for the Android branch.
 
-## Configure Hey Aleena
+## Existing backend integration
+- Login: `POST https://aleena-ai-backend.onrender.com/api/auth/login`.
+- Chat: authenticated `POST /api/chat`.
+- The client keeps the returned `session_id` encrypted and reuses it for text and voice chat; signing out clears the local session identifier.
+- No new server route, database migration, Render variable or Neon resource is added by this Android client.
+
+## Voice setup
 1. Create a Picovoice Console account and obtain an AccessKey.
 2. Create a Porcupine Android custom keyword model for **Hey Aleena**.
-3. Download the Android .ppn file.
-4. In Aleena Mobile, save the AccessKey and select the model.
-5. Sign in, grant microphone/notification permissions and tap Start voice assistant.
+3. Download the Android `.ppn` model.
+4. In Aleena, store the AccessKey and import the model.
+5. Sign in, grant microphone and notification permissions, then tap Start voice assistant while the app is visible.
 
-The model and AccessKey are intentionally excluded from Git. The key uses Android encrypted preferences; the model is stored in app-private storage.
+The AccessKey is saved in encrypted app-private preferences. The custom model is saved in app-private storage. Neither is committed to Git.
+Android speech recognition may use the device's configured recognition provider. TTS and speech recognition language availability depend on installed providers and voice data.
 
-## Implemented starter features
-- Existing backend login and authenticated chat.
-- Foreground microphone service with persistent notification.
-- Local Porcupine wake-word detection after model/key configuration.
-- Android speech recognition and TTS after activation; English (India) and Hindi (India).
-- Initial allowlisted actions: open Settings, media volume up/down, open alarm UI, open dialer, launch installed apps by name.
+## Android features ported from the PC version
+- Authenticated chat and server-backed default chat-session continuity.
+- Android-native SpeechRecognizer/TTS with selectable English, Hindi and additional locale presets.
+- Voice commands for locally encrypted tasks, scheduled reminders and explicit core memories.
+- Optional memory context sharing with cloud chat; the default is **off**.
+- Local PDF export for the currently displayed chat snippet using Android's document picker.
+- Foreground-only clipboard reading and user-selected file browsing.
+- Phone-native controls: media volume, mute/unmute, camera, dialer, alarm UI, Maps/navigation, system settings, battery/RAM status, web search and common website shortcuts.
+- WhatsApp draft composition that requires the user to review and press Send.
+- WhatsApp notification summaries and metadata-only local activity history.
+- A WebView entry point to the original hosted PC Next.js/3D avatar companion; its HTTPS URL is editable in the Android screen.
+- Selectable Android `VoiceInteractionService` entry point.
 
-## Android 16 / Xiaomi notes
-- Start the microphone foreground service while the app is visible. Android restricts starting microphone foreground services from the background.
-- HyperOS may stop background processes. For longer sessions, the user may need to allow Autostart/background activity and set battery use to No restrictions for Aleena. Labels vary by HyperOS build.
-- This starter deliberately does not auto-start microphone use at boot.
-- Only wake-word detection is local. Android speech recognition may use the configured recognition provider; AI messages go to the Aleena backend after activation.
-- Calls open the dialer rather than placing calls automatically.
-- System assistant role / VoiceInteractionService, notification access, messaging, media-session controls, brightness and deeper automation are planned follow-up work, not claimed complete.
+## Limits and setup requirements
+- The PC VRM avatar is opened through the existing hosted web companion, not reimplemented as a native Kotlin 3D scene.
+- The hosted web companion must be deployed and reachable. The default address is `https://aleena-ai-web.onrender.com`; the user can edit it in the app.
+- Porcupine AccessKey and custom model are required for the **Hey Aleena** wake phrase.
+- System-wide always-on custom hotword integration is not claimed. Android's microphone foreground-service rules and Xiaomi HyperOS battery/autostart policies may affect background listening.
+- WhatsApp notification access only exposes notification content provided by Android and WhatsApp. Personal-account typing indicators are not provided by `NotificationListenerService`.
+- WhatsApp sends are not automated; Aleena opens a prefilled draft and the user sends it.
+- Wi-Fi, Bluetooth and display controls open the relevant Android Settings screen; Aleena does not bypass Android system restrictions.
+- Reminder alarms use `setAndAllowWhileIdle`, so exact-to-the-minute delivery is not guaranteed. Notifications require notification permission.
+- The Android app currently uses the existing Node AI chat service. PC Gemini/Groq/Ollama provider selection, local Python multi-agent coding, advanced vector/episodic/knowledge-graph memory, social manager, market package and image-generation pipeline are not ported.
+- The PC source references missing `internet_manager`, `social_manager`, `market_intelligence`, `aura_module.py` and `utils/pdf_generator.py` implementations. These are not treated as verified PC capabilities.
+- The face-login settings flags found in PC source do not constitute an implemented face-login system.
 
-No Gemini key, database credential or server secret is packaged in this application.
+## Privacy boundaries
+- WhatsApp notification previews are transient and are not uploaded to the AI backend by this feature.
+- Local activity history contains metadata only and is encrypted; it is user-clearable.
+- Core memories are encrypted locally. They are included with a chat request only when the explicit memory-sharing toggle is enabled.
+- Clipboard access occurs only after the user taps the control while Aleena is open. Files are selected through Android's system picker.
+- No root, hidden APIs, private WhatsApp APIs, background clipboard scraping or unattended messaging are used.
 
-## WhatsApp activity summaries (first notification milestone)
-1. Open Aleena Mobile and choose **Enable WhatsApp notification access**.
-2. In Android notification access settings, enable Aleena.
-3. Return to Aleena and use **Check WhatsApp access** to confirm.
-4. Keep WhatsApp notifications enabled and allow previews in Android/WhatsApp notification settings if you want preview-based summaries while the phone is unlocked.
+## WhatsApp activity summaries
+1. Choose **Enable WhatsApp notification access** in Aleena.
+2. Enable Aleena in Android Notification Access settings.
+3. Return and use **Check WhatsApp access**.
+4. Keep WhatsApp notifications enabled. Allow previews in Android/WhatsApp notification settings if preview-based summaries are wanted while unlocked.
 
-The listener processes only notifications from the standard WhatsApp package (`com.whatsapp`). It groups available notification previews briefly in memory, announces a grouped summary and stores only event metadata (conversation, sender label, count and time) in encrypted app preferences. Preview text is not stored in event history or sent to Aleena's cloud backend by this feature. When the lock screen is active, speech is reduced to a generic activity announcement. Do Not Disturb suppresses speech.
+When the device is locked, announcements are generic rather than disclosing message previews. Do Not Disturb suppresses announcements where Android grants notification-policy access.
 
-**Typing is not implemented by notification access.** WhatsApp does not provide personal-account typing events through the standard Android notification stream. Any future visible-UI investigation is a separate, permission- and policy-gated feasibility task; it cannot promise detection when WhatsApp is closed or in the background.
-
-## Android default-assistant entry point
-
-The Android client now declares a `VoiceInteractionService` and session service so the user can try selecting Aleena under Android's voice-input / digital-assistant settings. Invocation opens Aleena and requests voice startup. This is separate from the custom **Hey Aleena** wake-word listener: Android's system-wide always-on hotword integration is not claimed as implemented, and availability depends on the device's settings and firmware.
+## Validation status
+- GitHub Actions Android build and existing repository validation have passed for earlier parity commits; the latest code changes must also pass the latest CI run before a fresh APK is recommended.
+- Compilation does not prove all UI actions work on the phone.
+- Real Redmi 13 5G / Android 16 checks remain mandatory for install, microphone lifecycle, TTS/STT, notification access, reminders, WebView, Android assistant selection and HyperOS background behavior.
+- The PR remains a draft and is not merged into `main`.
