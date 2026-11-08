@@ -62,10 +62,23 @@ class AssistantService:Service(),TextToSpeech.OnInitListener {
  }
  override fun onInit(status:Int){
   ttsReady=status==TextToSpeech.SUCCESS
-  if(ttsReady){tts?.language=Locale.forLanguageTag(SecurePrefs.get(this,KEY_LANGUAGE).ifBlank{"en-IN"});tts?.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
-   override fun onStart(id:String?){};override fun onDone(id:String?){main.post{busy=false;startWake()}}
+  if(!ttsReady){
+   notify("Android text-to-speech is unavailable. Install or enable a speech engine.")
+   busy=false
+   return
+  }
+  val language=Locale.forLanguageTag(SecurePrefs.get(this,KEY_LANGUAGE).ifBlank{"en-IN"})
+  val languageResult=tts?.setLanguage(language)
+  if(languageResult==TextToSpeech.LANG_MISSING_DATA||languageResult==TextToSpeech.LANG_NOT_SUPPORTED){
+   tts?.setLanguage(Locale.getDefault())
+   notify("Selected voice is unavailable. Using the phone's default speech language.")
+  }
+  tts?.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
+   override fun onStart(id:String?){}
+   override fun onDone(id:String?){main.post{busy=false;startWake()}}
    @Deprecated("Deprecated in Java") override fun onError(id:String?){main.post{busy=false;startWake()}}
-  })}
+  })
+  pendingSpeech?.let{message->pendingSpeech=null;say(message)}
  }
  private fun stopWake(){runCatching{wake?.stop()};runCatching{wake?.delete()};wake=null}
  private fun channel(){if(Build.VERSION.SDK_INT>=26)getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel("aleena_voice","Aleena voice assistant",NotificationManager.IMPORTANCE_LOW))}
