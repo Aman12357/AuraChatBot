@@ -2,6 +2,8 @@ package ai.aleena.mobile.voice
 import ai.aleena.mobile.MainActivity
 import ai.aleena.mobile.actions.PhoneActions
 import ai.aleena.mobile.network.AleenaApi
+import ai.aleena.mobile.productivity.ProductivityActions
+import ai.aleena.mobile.memory.CoreMemoryStore
 import ai.aleena.mobile.security.SecurePrefs
 import ai.picovoice.porcupine.*
 import android.app.*
@@ -46,11 +48,19 @@ class AssistantService:Service(),TextToSpeech.OnInitListener {
  }
  private fun handle(text:String){
   notify("Aleena is processing…")
+  val productivity=runCatching{ProductivityActions.run(this,text)}.getOrNull()
+  if(productivity!=null){say(productivity);return}
   val action=runCatching{PhoneActions.run(this,text)}.getOrNull()
   if(action!=null){say(action);return}
   val token=SecurePrefs.get(this,KEY_TOKEN)
   if(token.isBlank()){say("Please sign in to Aleena Mobile.");return}
-  AleenaApi.chat(token,text){result->main.post{result.fold({say(it)},{say("I could not reach Aleena. Check your connection and try again.")})}}
+  val memoryEnabled=SecurePrefs.get(this,KEY_MEMORY_SHARE)=="true"
+  val relevant=if(memoryEnabled) CoreMemoryStore.relevant(this,text) else emptyList()
+  val prompt=if(relevant.isEmpty()) text else {
+   val memoryContext=relevant.joinToString("\\n"){ "- "+it.fact }
+   "The user has explicitly enabled sharing selected saved memories with Aleena AI. Use this context only when relevant:\\n$memoryContext\\n\\nUser request: $text"
+  }
+  AleenaApi.chat(token,prompt){result->main.post{result.fold({say(it)},{say("I could not reach Aleena. Check your connection and try again.")})}}
  }
  private fun say(text:String){
   notify("Aleena is replying…")
@@ -85,5 +95,5 @@ class AssistantService:Service(),TextToSpeech.OnInitListener {
  private fun notification(message:String)=NotificationCompat.Builder(this,"aleena_voice").setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentTitle("Aleena is active").setContentText(message).setContentIntent(PendingIntent.getActivity(this,0,Intent(this,MainActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).setOngoing(true).setPriority(NotificationCompat.PRIORITY_LOW).build()
  private fun notify(message:String){getSystemService(NotificationManager::class.java).notify(4107,notification(message))}
  override fun onDestroy(){stopWake();speech?.destroy();tts?.stop();tts?.shutdown();super.onDestroy()}
- companion object{const val KEY_TOKEN="api_token";const val KEY_ACCESS="picovoice_access_key";const val KEY_LANGUAGE="speech_language";const val MODEL="hey_aleena_android.ppn"}
+ companion object{const val KEY_TOKEN="api_token";const val KEY_ACCESS="picovoice_access_key";const val KEY_LANGUAGE="speech_language";const val KEY_MEMORY_SHARE="memory_cloud_context_opt_in";const val MODEL="hey_aleena_android.ppn"}
 }
