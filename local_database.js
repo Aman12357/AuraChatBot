@@ -45,7 +45,7 @@ const SCHEMA = [
   "  settings_json TEXT,",
   "  updated_at TEXT DEFAULT CURRENT_TIMESTAMP",
   ");",
-].join("\\n");
+].join("\n");
 
 function normalizeSql(sql) {
   if (typeof sql !== "string" || !sql.trim()) {
@@ -121,7 +121,7 @@ async function createLocalDatabase(options = {}) {
     const normalized = normalizeSql(sql);
     const statement = database.prepare(normalized);
     const rows = [];
-    const readOnly = /^\\s*(SELECT|PRAGMA|EXPLAIN)\\b/i.test(normalized);
+    const readOnly = /^\s*(SELECT|PRAGMA|EXPLAIN)\b/i.test(normalized);
 
     try {
       if (parameters.length) {
