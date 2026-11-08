@@ -135,10 +135,10 @@ DEFAULT_SETTINGS = {
     "stt_language": "en-IN",          # Supports Hindi-English mix
     "use_elevenlabs": False,
     "use_minimax": False,
-    "voice_engine": "edgetts",        # "edgetts" | "offline" | "gtts" | "elevenlabs" | "minimax"
+    "voice_engine": "offline",        # "edgetts" | "offline" | "gtts" | "elevenlabs" | "minimax"
     "custom_logo_path": "",           # Path to custom sidebar logo image
     "wake_word": "hey assistant",
-    "ai_provider": "gemini",
+    "ai_provider": "ollama",
     "gemini_model": "gemini-3.1-flash-lite",
     "groq_api_key": "",
     "groq_model": "llama-3.3-70b-versatile",
@@ -976,7 +976,7 @@ class AIClient:
             self.settings = settings
         if on_model_switch:
             self.on_model_switch = on_model_switch
-        self.provider = self.settings.get("ai_provider", "gemini")
+        self.provider = self.settings.get("ai_provider", "ollama")
         self.gemini_model = self.settings.get("gemini_model", "gemini-3.1-flash-lite")
         self.groq_api_key = self.settings.get("groq_api_key", "")
         self.groq_model = self.settings.get("groq_model", "deepseek-r1-distill-llama-70b")
