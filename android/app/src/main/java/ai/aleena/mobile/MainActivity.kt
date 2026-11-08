@@ -1,6 +1,8 @@
 package ai.aleena.mobile
 
 import ai.aleena.mobile.events.EventRepository
+import ai.aleena.mobile.documents.PdfExporter
+import ai.aleena.mobile.actions.PhoneActions
 import ai.aleena.mobile.memory.CoreMemoryStore
 import ai.aleena.mobile.network.AleenaApi
 import ai.aleena.mobile.security.SecurePrefs
@@ -8,6 +10,8 @@ import ai.aleena.mobile.voice.AssistantService
 import android.Manifest
 import android.app.AlertDialog
 import android.content.ComponentName
+import android.content.ClipboardManager
+import android.provider.OpenableColumns
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -37,6 +41,31 @@ class MainActivity : AppCompatActivity() {
     private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) installModel(uri)
     }
+
+    private val savePdf = registerForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri: Uri? ->
+        if (uri != null) {
+            runCatching {
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    PdfExporter.write(output, "Aleena conversation export", pendingPdfText)
+                } ?: error("Could not open the selected destination.")
+            }.onSuccess { show("PDF export saved successfully.") }
+                .onFailure { show("PDF export failed: ${it.message ?: "unknown error"}") }
+        } else {
+            show("PDF export cancelled.")
+        }
+    }
+
+    private val browseFiles = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            val displayName = contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+            }
+            show("Selected file: ${displayName ?: uri.lastPathSegment ?: "unknown file"}. Android keeps access scoped to the file you selected.")
+        }
+    }
+
+    private var pendingPdfText: String = ""
 
     private val permissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -114,6 +143,11 @@ class MainActivity : AppCompatActivity() {
         root.addView(chatInput)
         root.addView(action("Send message") { sendChatMessage() })
         root.addView(action("PC features: tasks, reminders and memory") { startActivity(Intent(this, ProductivityActivity::class.java)) })
+        root.addView(action("Export current chat snippet as PDF") { exportChatPdf() })
+        root.addView(action("Read clipboard while Aleena is open") { readClipboard() })
+        root.addView(action("Browse a local file") { browseFiles.launch(arrayOf("*/*")) })
+        root.addView(action("Open camera") { show(PhoneActions.run(this, "open camera") ?: "Camera action unavailable.") })
+        root.addView(action("Check phone system status") { show(PhoneActions.run(this, "system status") ?: "System status unavailable.") })
         chatOutput = heading("Your conversation will appear here.", 14f)
         root.addView(chatOutput)
 
@@ -185,6 +219,30 @@ class MainActivity : AppCompatActivity() {
         ))
 
         setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    private fun exportChatPdf() {
+        val content = chatOutput.text?.toString()?.trim().orEmpty()
+        if (!content.startsWith("You:")) {
+            show("There is no chat response to export yet.")
+            return
+        }
+        pendingPdfText = content
+        savePdf.launch("Aleena-Chat-${System.currentTimeMillis()}.pdf")
+    }
+
+    private fun readClipboard() {
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+        if (text.isNullOrBlank()) {
+            show("The clipboard is empty or contains no text.")
+        } else {
+            AlertDialog.Builder(this)
+                .setTitle("Clipboard text")
+                .setMessage(text.take(4000))
+                .setPositiveButton("Close", null)
+                .show()
+        }
     }
 
     private fun chooseSpeechLanguage() {
