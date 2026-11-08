@@ -143,6 +143,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(chatInput)
         root.addView(action("Send message") { sendChatMessage() })
         root.addView(action("PC features: tasks, reminders and memory") { startActivity(Intent(this, ProductivityActivity::class.java)) })
+        root.addView(action("Open PC digital human and full web companion") { startActivity(Intent(this, PcExperienceActivity::class.java)) })
         root.addView(action("Export current chat snippet as PDF") { exportChatPdf() })
         root.addView(action("Read clipboard while Aleena is open") { readClipboard() })
         root.addView(action("Browse a local file") { browseFiles.launch(arrayOf("*/*")) })
