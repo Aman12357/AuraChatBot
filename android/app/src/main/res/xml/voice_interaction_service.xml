@@ -2,4 +2,3 @@
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:sessionService="ai.aleena.mobile.assistant.AleenaVoiceInteractionSessionService"
     android:supportsAssist="true"
-    android:supportsLaunchFromKeyguard="false" />
