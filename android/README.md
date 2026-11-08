@@ -47,3 +47,7 @@ No Gemini key, database credential or server secret is packaged in this applicat
 The listener processes only notifications from the standard WhatsApp package (`com.whatsapp`). It groups available notification previews briefly in memory, announces a grouped summary and stores only event metadata (conversation, sender label, count and time) in encrypted app preferences. Preview text is not stored in event history or sent to Aleena's cloud backend by this feature. When the lock screen is active, speech is reduced to a generic activity announcement. Do Not Disturb suppresses speech.
 
 **Typing is not implemented by notification access.** WhatsApp does not provide personal-account typing events through the standard Android notification stream. Any future visible-UI investigation is a separate, permission- and policy-gated feasibility task; it cannot promise detection when WhatsApp is closed or in the background.
+
+## Android default-assistant entry point
+
+The Android client now declares a `VoiceInteractionService` and session service so the user can try selecting Aleena under Android's voice-input / digital-assistant settings. Invocation opens Aleena and requests voice startup. This is separate from the custom **Hey Aleena** wake-word listener: Android's system-wide always-on hotword integration is not claimed as implemented, and availability depends on the device's settings and firmware.
