@@ -12,6 +12,12 @@ This module is intentionally isolated from the existing web, Node/Express, Pytho
 - Privacy: hybrid, with local-first notification processing and explicit opt-in before notification-derived content is sent to cloud AI or memory.
 - Assistant: provide the normal voice assistant and Android default-assistant integration.
 
+## Current mobile milestone
+- Restored native Android login, wake-word voice service, authenticated chat and allowlisted phone actions.
+- Added a WhatsApp notification listener for the standard WhatsApp package, local batching, sender/conversation summaries and encrypted metadata-only activity history.
+- Notification previews are used transiently for unlocked-device summaries; preview text is not retained in event history and is not sent to cloud.
+- Typing monitoring, the Activity Center UI and Android default-assistant integration are not implemented yet.
+
 ## Implementation gates
 - WhatsApp notification access is for notification content actually exposed by Android and WhatsApp settings.
 - Typing detection is experimental and conditional on a legitimate, user-enabled accessibility use case and visible accessible UI. It is not guaranteed with WhatsApp closed, in the background, or on the lock screen.
