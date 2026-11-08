@@ -1,7 +1,7 @@
 package ai.aleena.mobile.events
 
 import android.app.Notification
-import android.app.StatusBarNotification
+import android.service.notification.StatusBarNotification
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
