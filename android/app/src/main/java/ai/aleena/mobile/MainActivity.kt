@@ -32,6 +32,8 @@ import java.util.Date
 
 class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
+    private lateinit var pcBaseUrl: EditText
+    private lateinit var pcFingerprint: EditText
     private lateinit var email: EditText
     private lateinit var password: EditText
     private lateinit var key: EditText
@@ -124,12 +126,39 @@ class MainActivity : AppCompatActivity() {
         root.addView(heading("Your personal voice assistant", 25f))
         root.addView(heading("Redmi 13 5G • Android 16", 14f))
 
+        root.addView(heading("Secure connection to your PC"))
+        root.addView(heading(
+            "Run the TLS setup on your PC, then enter the local HTTPS address and the exact SHA-256 certificate fingerprint shown there. Keep both devices on the same trusted Wi-Fi.",
+            13f
+        ))
+        pcBaseUrl = field("PC HTTPS address, e.g. https://192.168.1.20:8767")
+        pcBaseUrl.setText(SecurePrefs.get(this, AleenaApi.KEY_PC_BASE_URL))
+        pcFingerprint = field("PC certificate SHA-256 fingerprint (64 hex characters)")
+        pcFingerprint.setText(SecurePrefs.get(this, AleenaApi.KEY_PC_CERT_SHA256))
+        root.addView(pcBaseUrl)
+        root.addView(pcFingerprint)
+        root.addView(action("Save secure PC connection") { savePcConnection() })
+        root.addView(action("Check PC connection") { checkPcConnection() })
+        root.addView(action("Forget PC connection") {
+            AlertDialog.Builder(this)
+                .setTitle("Forget this PC?")
+                .setMessage("This clears the saved PC certificate pin, address, sign-in token and chat session from this phone. Local phone tasks and memories are kept.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Forget") { _, _ ->
+                    AleenaApi.clearPcConnection(this)
+                    pcBaseUrl.text.clear()
+                    pcFingerprint.text.clear()
+                    show("PC connection and account token cleared from this phone.")
+                }
+                .show()
+        })
+
         root.addView(heading("Account"))
         email = field("Aleena account email")
         password = field("Password", secret = true)
         root.addView(email)
         root.addView(password)
-        root.addView(action("Sign in to Aleena") { signIn() })
+        root.addView(action("Sign in to Aleena on my PC") { signIn() })
         root.addView(action("Sign out") {
             SecurePrefs.put(this, AssistantService.KEY_TOKEN, "")
             SecurePrefs.put(this, AssistantService.KEY_SESSION_ID, "")
@@ -212,12 +241,12 @@ class MainActivity : AppCompatActivity() {
         })
 
         status = heading(
-            "Sign in, configure the wake-word key and model, then start listening.",
+            "Pair with your PC first. Chat is processed by Gemini and saved in the PC's local SQLite database.",
             14f
         )
         root.addView(status)
         root.addView(heading(
-            "Wake-word detection is on-device. Android speech recognition uses the configured speech provider. Chat requests are sent to the existing Aleena backend.",
+            "Wake-word detection is on-device. Voice recognition uses the Android speech provider. Chat goes over certificate-pinned HTTPS to your paired PC; Gemini generates replies and your PC's SQLite database stores chat history.",
             12f
         ))
 
@@ -269,6 +298,39 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun savePcConnection() {
+        val result = AleenaApi.savePcConnection(
+            this,
+            pcBaseUrl.text.toString(),
+            pcFingerprint.text.toString()
+        )
+        result.fold(
+            { show("Secure PC address and certificate fingerprint saved in encrypted phone storage. Tap Check PC connection to verify the PC is running.") },
+            { error -> show(error.message ?: "Could not save the PC connection.") }
+        )
+    }
+
+    private fun checkPcConnection() {
+        val result = AleenaApi.savePcConnection(
+            this,
+            pcBaseUrl.text.toString(),
+            pcFingerprint.text.toString()
+        )
+        if (result.isFailure) {
+            show(result.exceptionOrNull()?.message ?: "Enter a valid secure PC address and fingerprint.")
+            return
+        }
+        show("Checking the pinned HTTPS connection to your PC…")
+        AleenaApi.checkPcConnection(this) { check ->
+            runOnUiThread {
+                check.fold(
+                    { message -> show(message) },
+                    { error -> show(error.message ?: "PC connection test failed.") }
+                )
+            }
+        }
+    }
+
     private fun signIn() {
         val accountEmail = email.text.toString().trim()
         val accountPassword = password.text.toString()
@@ -277,7 +339,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         show("Signing in…")
-        AleenaApi.login(accountEmail, accountPassword) { result ->
+        AleenaApi.login(this, accountEmail, accountPassword) { result ->
             runOnUiThread {
                 result.fold(
                     { pair ->
@@ -311,7 +373,7 @@ class MainActivity : AppCompatActivity() {
             "The user explicitly opted in to sharing these relevant saved memories with Aleena AI:\n$contextText\n\nUser request: $message"
         }
         val sessionId = SecurePrefs.get(this, AssistantService.KEY_SESSION_ID).takeIf { it.isNotBlank() }
-        AleenaApi.chat(token, requestText, sessionId) { result ->
+        AleenaApi.chat(this, token, requestText, sessionId) { result ->
             runOnUiThread {
                 chatInput.isEnabled = true
                 result.fold(
