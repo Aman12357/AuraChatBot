@@ -172,7 +172,10 @@ object AleenaApi {
                         require(root.optString("ai_provider") == "gemini") {
                             "The PC backend is not configured for Gemini."
                         }
-                        "Secure PC connection verified. Chat storage: PC SQLite. AI: Gemini."
+                        require(root.optBoolean("ai_provider_configured", false)) {
+                            "Gemini is selected on the PC, but its API key is missing or the client could not initialize. Check GEMINI_API_KEY in the PC .env file."
+                        }
+                        "Secure PC connection verified. Chat storage: PC SQLite. AI: Gemini is configured."
                     }.fold({ done(Result.success(it)) }, { done(Result.failure(it)) })
                 }
             }
