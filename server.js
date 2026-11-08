@@ -12,6 +12,8 @@
  */
 
 const http = require("http");
+const https = require("https");
+const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 const express = require("express");
@@ -33,6 +35,11 @@ require("dotenv").config();
 
 const PORT = Number(process.env.PORT || 8765);
 const NODE_ENV = process.env.NODE_ENV || "production";
+const LOCAL_LAN_ENABLED = String(process.env.LOCAL_LAN_ENABLED || "false").toLowerCase() === "true";
+const LOCAL_LAN_PORT = Number(process.env.LOCAL_LAN_PORT || 8767);
+const LOCAL_LAN_HOST = process.env.LOCAL_LAN_HOST || "0.0.0.0";
+const LOCAL_TLS_CERT_FILE = path.resolve(process.env.LOCAL_TLS_CERT_FILE || path.join(__dirname, "data", "local-server-cert.pem"));
+const LOCAL_TLS_KEY_FILE = path.resolve(process.env.LOCAL_TLS_KEY_FILE || path.join(__dirname, "data", "local-server-key.pem"));
 
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "http://localhost:3000";
@@ -89,6 +96,7 @@ if (!AUTH_CONFIGURED) {
 
 let pool = null;
 let localDatabase = null;
+let localLanServer = null;
 
 if (DATABASE_MODE === "postgres" && DATABASE_URL) {
   pool = new Pool({
@@ -1349,22 +1357,36 @@ async function startServer() {
   // Initialize local persistence before accepting authenticated requests.
   await initializeDatabase();
 
-  server.listen(
-    PORT,
-    process.env.HOST || "0.0.0.0",
-    () => {
-      console.log(
-        `[SERVER] Aleena AI listening on port ${PORT}.`
-      );
+  server.listen(PORT, process.env.HOST || "127.0.0.1", () => {
+    console.log(`[SERVER] Aleena local API listening on ${process.env.HOST || "127.0.0.1"}:${PORT}.`);
+    console.log(`[SERVER] Environment: ${NODE_ENV}`);
+    console.log(`[SERVER] Database mode: ${DATABASE_MODE}`);
+    console.log(`[SERVER] AI provider: ${AI_PROVIDER}; model: ${getActiveModel()}`);
+  });
 
-      console.log(
-        `[SERVER] Environment: ${NODE_ENV}`
+  if (LOCAL_LAN_ENABLED) {
+    if (!fs.existsSync(LOCAL_TLS_CERT_FILE) || !fs.existsSync(LOCAL_TLS_KEY_FILE)) {
+      throw new Error(
+        "Secure phone access is enabled but the TLS certificate/key are missing. Run: python scripts/generate_local_tls.py"
       );
-
-      console.log(`[SERVER] Database mode: ${DATABASE_MODE}`);
-      console.log(`[SERVER] AI provider: ${AI_PROVIDER}; model: ${getActiveModel()}`);
     }
-  );
+
+    localLanServer = https.createServer({
+      cert: fs.readFileSync(LOCAL_TLS_CERT_FILE),
+      key: fs.readFileSync(LOCAL_TLS_KEY_FILE),
+      minVersion: "TLSv1.2",
+    }, app);
+
+    localLanServer.on("error", (error) => {
+      console.error("[LOCAL LAN] HTTPS listener failed:", error.message);
+    });
+
+    localLanServer.listen(LOCAL_LAN_PORT, LOCAL_LAN_HOST, () => {
+      console.log(`[LOCAL LAN] Secure Android API available on https://${LOCAL_LAN_HOST}:${LOCAL_LAN_PORT}`);
+      console.log("[LOCAL LAN] The Android app must pin the SHA-256 certificate fingerprint printed by scripts/generate_local_tls.py.");
+      console.log("[LOCAL LAN] Keep the Windows firewall limited to your private home network.");
+    });
+  }
 }
 
 startServer().catch((error) => {
@@ -1372,17 +1394,24 @@ startServer().catch((error) => {
   process.exit(1);
 });
 
+async function closeListener(listener) {
+  if (!listener || !listener.listening) return;
+  await new Promise((resolve) => listener.close(resolve));
+}
+
 async function shutdown() {
-  server.close(async () => {
-    try {
-      if (localDatabase) localDatabase.close();
-      if (pool) await pool.end();
-    } catch (error) {
-      console.error("[SERVER] Shutdown error:", error.message);
-    } finally {
-      process.exit(0);
-    }
-  });
+  try {
+    await Promise.all([
+      closeListener(server),
+      closeListener(localLanServer),
+    ]);
+    if (localDatabase) localDatabase.close();
+    if (pool) await pool.end();
+  } catch (error) {
+    console.error("[SERVER] Shutdown error:", error.message);
+  } finally {
+    process.exit(0);
+  }
 }
 
 process.once("SIGINT", shutdown);
