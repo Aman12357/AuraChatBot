@@ -84,8 +84,8 @@ object PhoneActions {
                 launch(Intent(Intent.ACTION_VIEW, Uri.parse(address)))
                 "Opening $site."
             }
-            command.startsWith("whatsapp to ") -> openWhatsAppDraft(context, value.substring(12).trim(), launch)
-            command.startsWith("send whatsapp to ") -> openWhatsAppDraft(context, value.substring(17).trim(), launch)
+            command.startsWith("whatsapp to ") -> openWhatsAppDraft(context, value.substring(12).trim())
+            command.startsWith("send whatsapp to ") -> openWhatsAppDraft(context, value.substring(17).trim())
             command.startsWith("call ") -> {
                 val number = value.substringAfter("call ").trim()
                 if (number.isBlank() || number.any { !(it.isDigit() || it == '+' || it == ' ') }) return null
@@ -134,14 +134,15 @@ object PhoneActions {
         return "$battery Available RAM is approximately %.1f GB out of %.1f GB.".format(Locale.US, freeRamGb, totalRamGb)
     }
 
-    private fun openWhatsAppDraft(context: Context, raw: String, launch: (Intent) -> Unit): String {
+    private fun openWhatsAppDraft(context: Context, raw: String): String {
         val match = Regex("^(\\+?[0-9][0-9 ()-]{6,18})\\s+(?:message|saying)\\s+(.+)$", RegexOption.IGNORE_CASE).find(raw)
             ?: return "Use: WhatsApp to country-code-and-number message your text. I will open a draft for you to review and send."
         val phone = match.groupValues[1].filter { it.isDigit() }
         val message = match.groupValues[2].trim()
         if (phone.length !in 8..15 || message.isBlank()) return "Please check the phone number and message."
         val encoded = URLEncoder.encode(message, StandardCharsets.UTF_8.toString())
-        launch(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$phone?text=$encoded")))
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$phone?text=$encoded")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
         return "Opening a WhatsApp draft. Review it and press Send yourself."
     }
 }
