@@ -1,6 +1,7 @@
 package ai.aleena.mobile
 
 import ai.aleena.mobile.events.EventRepository
+import ai.aleena.mobile.memory.CoreMemoryStore
 import ai.aleena.mobile.network.AleenaApi
 import ai.aleena.mobile.security.SecurePrefs
 import ai.aleena.mobile.voice.AssistantService
@@ -112,6 +113,7 @@ class MainActivity : AppCompatActivity() {
         chatInput.maxLines = 4
         root.addView(chatInput)
         root.addView(action("Send message") { sendChatMessage() })
+        root.addView(action("PC features: tasks, reminders and memory") { startActivity(Intent(this, ProductivityActivity::class.java)) })
         chatOutput = heading("Your conversation will appear here.", 14f)
         root.addView(chatOutput)
 
@@ -214,7 +216,13 @@ class MainActivity : AppCompatActivity() {
         }
         chatInput.isEnabled = false
         chatOutput.text = "You: $message\n\nAleena: Thinking…"
-        AleenaApi.chat(token, message) { result ->
+        val memoryEnabled = SecurePrefs.get(this, AssistantService.KEY_MEMORY_SHARE) == "true"
+        val relevantMemories = if (memoryEnabled) CoreMemoryStore.relevant(this, message) else emptyList()
+        val requestText = if (relevantMemories.isEmpty()) message else {
+            val contextText = relevantMemories.joinToString("\\n") { "- ${it.fact}" }
+            "The user explicitly opted in to sharing these relevant saved memories with Aleena AI:\\n$contextText\\n\\nUser request: $message"
+        }
+        AleenaApi.chat(token, requestText) { result ->
             runOnUiThread {
                 chatInput.isEnabled = true
                 result.fold(
