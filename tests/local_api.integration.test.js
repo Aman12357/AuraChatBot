@@ -28,7 +28,7 @@ async function closeServer(server) {
 async function waitForHealth(url, child, output) {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     if (child.exitCode !== null) {
-      throw new Error("Aleena server exited before becoming healthy.\n" + output());
+      throw new Error("Aleena server exited before becoming healthy.\\n" + output());
     }
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(1000) });
@@ -38,46 +38,16 @@ async function waitForHealth(url, child, output) {
     }
     await delay(100);
   }
-  throw new Error("Timed out waiting for Aleena server.\n" + output());
+  throw new Error("Timed out waiting for Aleena server.\\n" + output());
 }
 
-test("local API uses SQLite and the local Ollama endpoint", async () => {
+test("local API stores data in SQLite and selects Gemini without cloud fallbacks", async () => {
   const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aleena-local-api-"));
-  let ollamaCalls = 0;
-  const receivedModels = [];
-
-  const mockOllama = http.createServer(async (req, res) => {
-    if (req.method === "GET" && req.url === "/api/tags") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ models: [{ name: "test-model:latest" }] }));
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/chat") {
-      let raw = "";
-      for await (const chunk of req) raw += chunk.toString();
-      const payload = JSON.parse(raw);
-      ollamaCalls += 1;
-      receivedModels.push(payload.model);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        model: payload.model,
-        message: { role: "assistant", content: "This reply came from the local model." },
-        done: true,
-      }));
-      return;
-    }
-
-    res.writeHead(404);
-    res.end();
-  });
-
   let appProcess;
   let appOutput = "";
   let database;
 
   try {
-    const ollamaPort = await listen(mockOllama);
     const appProbe = http.createServer();
     const appPort = await listen(appProbe);
     await closeServer(appProbe);
@@ -93,10 +63,9 @@ test("local API uses SQLite and the local Ollama endpoint", async () => {
       JWT_SECRET: "test-only-local-secret-with-more-than-32-characters",
       MASTER_EMAIL: "",
       MASTER_SETUP_KEY: "",
-      AI_PROVIDER: "ollama",
-      OLLAMA_BASE_URL: "http://127.0.0.1:" + ollamaPort,
-      OLLAMA_MODEL: "test-model:latest",
+      AI_PROVIDER: "gemini",
       GEMINI_API_KEY: "",
+      GEMINI_MODEL: "test-gemini-model",
     };
 
     appProcess = spawn(
@@ -113,7 +82,9 @@ test("local API uses SQLite and the local Ollama endpoint", async () => {
 
     assert.equal(health.database, "connected");
     assert.equal(health.database_mode, "sqlite");
-    assert.equal(health.ai_provider, "ollama");
+    assert.equal(health.ai_provider, "gemini");
+    assert.equal(health.ai_provider_configured, false);
+    assert.equal(health.model, "test-gemini-model");
 
     const registerResponse = await fetch(baseUrl + "/api/auth/register", {
       method: "POST",
@@ -128,6 +99,14 @@ test("local API uses SQLite and the local Ollama endpoint", async () => {
     const registration = await registerResponse.json();
     assert.ok(registration.token);
 
+    const aiTestResponse = await fetch(baseUrl + "/api/ai-test", {
+      headers: { Authorization: "Bearer " + registration.token },
+    });
+    assert.equal(aiTestResponse.status, 503);
+    const aiTest = await aiTestResponse.json();
+    assert.equal(aiTest.status, "error");
+    assert.match(aiTest.message, /GEMINI_API_KEY/);
+
     const chatResponse = await fetch(baseUrl + "/api/chat", {
       method: "POST",
       headers: {
@@ -139,11 +118,9 @@ test("local API uses SQLite and the local Ollama endpoint", async () => {
     assert.equal(chatResponse.status, 200);
     const chat = await chatResponse.json();
 
-    assert.equal(chat.response, "This reply came from the local model.");
-    assert.equal(chat.model, "test-model:latest");
+    assert.equal(chat.response, "Hello! I am Aleena. How can I help you today?");
+    assert.equal(chat.model, "test-gemini-model");
     assert.ok(chat.session_id);
-    assert.equal(ollamaCalls, 1);
-    assert.deepEqual(receivedModels, ["test-model:latest"]);
 
     appProcess.kill("SIGTERM");
     await Promise.race([once(appProcess, "exit"), delay(5000)]);
@@ -162,7 +139,7 @@ test("local API uses SQLite and the local Ollama endpoint", async () => {
     assert.equal(userRows.length, 1);
     assert.equal(messageRows.length, 2);
     assert.equal(messageRows[0].content, "Hello Aleena");
-    assert.equal(messageRows[1].content, "This reply came from the local model.");
+    assert.equal(messageRows[1].content, "Hello! I am Aleena. How can I help you today?");
     assert.equal(database.integrityCheck(), "ok");
   } finally {
     if (appProcess && appProcess.exitCode === null) {
@@ -170,7 +147,6 @@ test("local API uses SQLite and the local Ollama endpoint", async () => {
       await Promise.race([once(appProcess, "exit"), delay(5000)]);
     }
     if (database) database.close();
-    await closeServer(mockOllama);
     fs.rmSync(dataDirectory, { recursive: true, force: true });
   }
 });
