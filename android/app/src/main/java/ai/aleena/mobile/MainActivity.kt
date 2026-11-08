@@ -129,7 +129,7 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(heading("Secure connection to your PC"))
         root.addView(heading(
-            "Run the TLS setup on your PC, then enter the local HTTPS address and the exact SHA-256 certificate fingerprint shown there. Keep both devices on the same trusted Wi-Fi.",
+            "Run the TLS setup on your PC, then enter the local HTTPS address, SHA-256 certificate fingerprint, and local pairing key printed there. Keep both devices on the same trusted Wi-Fi.",
             13f
         ))
         pcBaseUrl = field("PC HTTPS address, e.g. https://192.168.1.20:8767")
@@ -311,7 +311,7 @@ class MainActivity : AppCompatActivity() {
             pcPairingKey.text.toString()
         )
         result.fold(
-            { show("Secure PC address and certificate fingerprint saved in encrypted phone storage. Tap Check PC connection to verify the PC is running.") },
+            { show("Secure PC address, certificate fingerprint and pairing key saved in encrypted phone storage. Tap Check PC connection to verify the PC is running.") },
             { error -> show(error.message ?: "Could not save the PC connection.") }
         )
     }
@@ -324,7 +324,7 @@ class MainActivity : AppCompatActivity() {
             pcPairingKey.text.toString()
         )
         if (result.isFailure) {
-            show(result.exceptionOrNull()?.message ?: "Enter a valid secure PC address and fingerprint.")
+            show(result.exceptionOrNull()?.message ?: "Enter a valid secure PC address, certificate fingerprint and pairing key.")
             return
         }
         show("Checking the pinned HTTPS connection to your PC…")
