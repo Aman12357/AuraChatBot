@@ -6,8 +6,8 @@ This document compares the desktop implementation in `main.py`, `web_server.py` 
 
 | PC capability | PC source evidence | Android plan/status | Important difference |
 |---|---|---|---|
-| Chat, authenticated account, sessions and history | Node API and desktop WebSocket chat bridge | Partial: account login and text/voice chat use existing authenticated Node API | Android currently does not reproduce all PC session/history screens |
-| AI provider selection: Gemini, Groq, Ollama | `main.py` settings and AIClient provider methods | Not ported | Mobile currently uses existing Aleena Node chat endpoint; do not put PC API secrets in the APK |
+| Chat, authenticated account, sessions and history | Node API and desktop WebSocket chat bridge | Partial: account login and text/voice chat use certificate-pinned HTTPS to the paired PC | PC local SQLite stores users, sessions and messages; Android does not yet reproduce the complete PC session/history UI |
+| AI provider selection | `main.py` and Node API are now Gemini-only in the local-first branch | Uses the PC's Gemini-only Node API over the paired local connection | Gemini API key remains only in the PC `.env`; it is never packaged in the APK |
 | Multi-agent research/coding and learned lessons | `AgentOrchestrator`, WEB_AGENT, CODING_AGENT, local Python sandbox | Not ported | Local Python script execution is desktop-only and must not be silently recreated on Android |
 | Voice input and output | SpeechRecognition, VoiceEngine, Edge TTS, gTTS, pyttsx3, ElevenLabs, MiniMax | Partial: Porcupine wake-word + Android SpeechRecognizer + Android TTS | Provider keys and voices differ; Android TTS language availability depends on installed voice data |
 | Wake word | Desktop setting has a configurable wake-word string; Android uses Porcupine custom keyword model | Setup required | Android needs a Picovoice AccessKey and an Android `.ppn` model; continuous listening is subject to Android foreground microphone rules |
@@ -26,6 +26,9 @@ This document compares the desktop implementation in `main.py`, `web_server.py` 
 | Face login | PC settings include `face_login_enabled` and backup PIN | Not implemented | The inspected PC source only exposes settings fields; no face-recognition implementation was found |
 
 ## Android feature work added in this branch
+- Secure PC pairing using a self-signed TLS certificate with a manually verified SHA-256 fingerprint.
+- Local HTTPS chat to the PC Node API; mobile pairing health-checks that the PC is using SQLite and Gemini.
+- Android stores the PC address, certificate fingerprint, authentication token and chat-session ID in encrypted app-private storage.
 - Encrypted local tasks with complete/delete actions.
 - Scheduled local reminders with notification delivery and pending-reminder rescheduling after device reboot.
 - Encrypted local core memories with add/list/forget/clear actions.
@@ -38,8 +41,8 @@ This document compares the desktop implementation in `main.py`, `web_server.py` 
 ### Phase A — Android-native productivity and safe device actions
 Finish acceptance tests for the new task/reminder/memory code, improve task editing, add device status and complete the safe app/website command catalog.
 
-### Phase B — AI configuration and multi-provider routing
-Add provider selection and encrypted credential entry for supported cloud providers, define the Ollama/LAN connection policy, keep server-backed chat as the default, and add provider error/fallback tests. Never package secrets or ask users to commit them.
+### Phase B — Pairing and provider security
+The current implementation pairs Android with the PC using a locally generated TLS certificate and certificate fingerprint pinning. Future work should add QR-based transfer of the address/fingerprint, device revocation, and automated tests for token/session handling. Gemini credentials stay on the PC and must never be placed in the APK.
 
 ### Phase C — Research, web data, image and document generation
 Use maintained online APIs or a controlled backend adapter for search, weather, news, image generation and PDFs. First restore/verify missing PC modules; do not port calls that currently reference undefined managers.
