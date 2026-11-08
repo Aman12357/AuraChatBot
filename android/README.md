@@ -1,6 +1,6 @@
 # Aleena Mobile (Android)
 
-Native Android companion for AuraChatBot. This module is isolated from the PC web app, Node/Python backend source, Render configuration and Neon database.
+Native Android companion for AuraChatBot. Android source remains a separate Gradle module, and its chat client connects only to the user's PC-local Node API over certificate-pinned HTTPS. It does not use the Render API for chat in this local-PC configuration.
 
 ## Target and build
 - Target device: Xiaomi Redmi 13 5G, Android 16. Real-device validation is still required.
