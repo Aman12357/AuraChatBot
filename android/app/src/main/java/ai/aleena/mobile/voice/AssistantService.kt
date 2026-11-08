@@ -57,8 +57,8 @@ class AssistantService:Service(),TextToSpeech.OnInitListener {
   val memoryEnabled=SecurePrefs.get(this,KEY_MEMORY_SHARE)=="true"
   val relevant=if(memoryEnabled) CoreMemoryStore.relevant(this,text) else emptyList()
   val prompt=if(relevant.isEmpty()) text else {
-   val memoryContext=relevant.joinToString("\\n"){ "- "+it.fact }
-   "The user has explicitly enabled sharing selected saved memories with Aleena AI. Use this context only when relevant:\\n$memoryContext\\n\\nUser request: $text"
+   val memoryContext=relevant.joinToString("\n"){ "- "+it.fact }
+   "The user has explicitly enabled sharing selected saved memories with Aleena AI. Use this context only when relevant:\n$memoryContext\n\nUser request: $text"
   }
    val sessionId=SecurePrefs.get(this,KEY_SESSION_ID).takeIf{it.isNotBlank()}
    AleenaApi.chat(token,prompt,sessionId){result->main.post{result.fold({reply->
