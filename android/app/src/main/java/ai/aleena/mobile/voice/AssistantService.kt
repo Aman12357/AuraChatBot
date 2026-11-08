@@ -14,7 +14,7 @@ import java.io.File
 import java.util.Locale
 class AssistantService:Service(),TextToSpeech.OnInitListener {
  private val main=Handler(Looper.getMainLooper());private var wake:PorcupineManager?=null
- private var speech:SpeechRecognizer?=null;private var tts:TextToSpeech?=null;private var ttsReady=false;private var busy=false
+ private var speech:SpeechRecognizer?=null;private var tts:TextToSpeech?=null;private var ttsReady=false;private var busy=false;private var pendingSpeech:String?=null
  override fun onCreate(){super.onCreate();channel();tts=TextToSpeech(this,this)}
  override fun onStartCommand(i:Intent?,f:Int,id:Int):Int{startForeground(4107,notification("Preparing Aleena…"));main.post{startWake()};return START_NOT_STICKY}
  override fun onBind(i:Intent?):IBinder?=null
@@ -54,8 +54,11 @@ class AssistantService:Service(),TextToSpeech.OnInitListener {
  }
  private fun say(text:String){
   notify("Aleena is replying…")
-  if(!ttsReady){busy=false;main.postDelayed({startWake()},1200);return}
-  tts?.speak(text,TextToSpeech.QUEUE_FLUSH,null,"reply-"+System.currentTimeMillis())
+  if(!ttsReady){pendingSpeech=text;return}
+  val engine=tts
+  if(engine==null){busy=false;notify("Text-to-speech is unavailable. Check Android speech output settings.");return}
+  val result=engine.speak(text,TextToSpeech.QUEUE_FLUSH,null,"reply-"+System.currentTimeMillis())
+  if(result==TextToSpeech.ERROR){busy=false;notify("Aleena could not speak the response. Check the installed text-to-speech engine.");main.postDelayed({startWake()},1500)}
  }
  override fun onInit(status:Int){
   ttsReady=status==TextToSpeech.SUCCESS
