@@ -307,8 +307,8 @@ class MainActivity : AppCompatActivity() {
         val memoryEnabled = SecurePrefs.get(this, AssistantService.KEY_MEMORY_SHARE) == "true"
         val relevantMemories = if (memoryEnabled) CoreMemoryStore.relevant(this, message) else emptyList()
         val requestText = if (relevantMemories.isEmpty()) message else {
-            val contextText = relevantMemories.joinToString("\\n") { "- ${it.fact}" }
-            "The user explicitly opted in to sharing these relevant saved memories with Aleena AI:\\n$contextText\\n\\nUser request: $message"
+            val contextText = relevantMemories.joinToString("\n") { "- ${it.fact}" }
+            "The user explicitly opted in to sharing these relevant saved memories with Aleena AI:\n$contextText\n\nUser request: $message"
         }
         val sessionId = SecurePrefs.get(this, AssistantService.KEY_SESSION_ID).takeIf { it.isNotBlank() }
         AleenaApi.chat(token, requestText, sessionId) { result ->
