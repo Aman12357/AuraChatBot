@@ -138,12 +138,8 @@ DEFAULT_SETTINGS = {
     "voice_engine": "offline",        # "edgetts" | "offline" | "gtts" | "elevenlabs" | "minimax"
     "custom_logo_path": "",           # Path to custom sidebar logo image
     "wake_word": "hey assistant",
-    "ai_provider": "ollama",
+    "ai_provider": "gemini",
     "gemini_model": "gemini-3.1-flash-lite",
-    "groq_api_key": "",
-    "groq_model": "llama-3.3-70b-versatile",
-    "ollama_url": "http://localhost:11434",
-    "ollama_model": "deepseek-r1:8b",
     "face_login_enabled": False,
     "face_backup_pin": "",
     "startup_clip_path": "",
@@ -1022,12 +1018,12 @@ class AIClient:
             self.settings = settings
         if on_model_switch:
             self.on_model_switch = on_model_switch
-        self.provider = self.settings.get("ai_provider", "ollama")
+        # Gemini is the only supported AI provider. Migrate old saved selections.
+        if self.settings.get("ai_provider") != "gemini":
+            self.settings["ai_provider"] = "gemini"
+            save_settings(self.settings)
+        self.provider = "gemini"
         self.gemini_model = self.settings.get("gemini_model", "gemini-3.1-flash-lite")
-        self.groq_api_key = self.settings.get("groq_api_key", "")
-        self.groq_model = self.settings.get("groq_model", "deepseek-r1-distill-llama-70b")
-        self.ollama_url = self.settings.get("ollama_url", "http://localhost:11434")
-        self.ollama_model = self.settings.get("ollama_model", "deepseek-r1:8b")
         gemini_key = self.settings.get("gemini_api_key", "")
         if gemini_key:
             try:
@@ -1825,14 +1821,8 @@ If nothing relevant is found, return empty lists.
         # Append the user message to history once here
         self._history.append({"role": "user", "content": text, "image_path": image_path})
         
-        # Determine the order of providers to try (user's preferred first, then others)
-        preferred_provider = self.provider
-        providers_to_try = [preferred_provider]
-        
-        all_providers = ["gemini", "groq", "ollama"]
-        for p in all_providers:
-            if p not in providers_to_try:
-                providers_to_try.append(p)
+        # Do not switch to local or third-party AI providers.
+        providers_to_try = ["gemini"]
                 
         last_error = None
         
@@ -1841,9 +1831,6 @@ If nothing relevant is found, return empty lists.
                 # Check if this provider is configured/available
                 if prov == "gemini" and not self.settings.get("gemini_api_key"):
                     continue
-                if prov == "groq" and not self.settings.get("groq_api_key"):
-                    continue
-                
                 try:
                     if prov == "gemini":
                         res = self._send_gemini(text, image_path)
@@ -1860,34 +1847,6 @@ If nothing relevant is found, return empty lists.
                             self.settings["ai_provider"] = "gemini"
                             save_settings(self.settings)
                         return res
-                    elif prov == "groq":
-                        res = self._send_groq(text, image_path)
-                        if res and len(res) > 0 and res[0]:
-                            self.store_conversation_pair_async(text, res[0])
-                            self.extract_memory_elements_async(text, res[0])
-                        if prov != self.provider:
-                            reason = f"Primary provider '{self.provider}' failed/limit reached"
-                            logger.warning(reason)
-                            if self.on_model_switch:
-                                self.on_model_switch("groq", self.groq_model, reason)
-                            self.provider = "groq"
-                            self.settings["ai_provider"] = "groq"
-                            save_settings(self.settings)
-                        return res
-                    elif prov == "ollama":
-                        res = self._send_ollama(text, image_path)
-                        if res and len(res) > 0 and res[0]:
-                            self.store_conversation_pair_async(text, res[0])
-                            self.extract_memory_elements_async(text, res[0])
-                        if prov != self.provider:
-                            reason = f"Primary provider '{self.provider}' failed/limit reached"
-                            logger.warning(reason)
-                            if self.on_model_switch:
-                                self.on_model_switch("ollama", self.ollama_model, reason)
-                            self.provider = "ollama"
-                            self.settings["ai_provider"] = "ollama"
-                            save_settings(self.settings)
-                        return res
                 except Exception as e:
                     logger.error(f"Provider '{prov}' failed: {e}")
                     last_error = e
@@ -1899,8 +1858,8 @@ If nothing relevant is found, return empty lists.
             err_msg = (
                 "⚠️ **All AI models/providers failed to respond.**\n\n"
                 "Please check:\n"
-                "1. **Internet Connection:** Verify your connection to Gemini/Groq APIs.\n"
-                "2. **Local Ollama:** If using Ollama, ensure it is running (`ollama serve`) and the configured model is downloaded.\n\n"
+                "1. **Internet Connection:** Verify your connection to the Gemini API.\n"
+                "2. **Gemini API Key:** Check the GEMINI_API_KEY setting and your model quota.\n\n"
                 f"*(Last error: {last_error})*"
             )
             return err_msg, [], None
@@ -2028,203 +1987,6 @@ If nothing relevant is found, return empty lists.
             logger.error(f"Gemini send error: {e}")
             raise e
         
-    def _send_groq(self, text: str, image_path: str = None) -> tuple[str, list[tuple[str, str]], str | None]:
-        if not self.groq_api_key:
-            raise Exception("No Groq API Key Configured")
-            
-        candidates = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "deepseek-r1-distill-llama-70b",
-            "qwen/qwen3-32b",
-            "qwen/qwen3.6-27b"
-        ]
-        
-        current_model = self.groq_model
-        tried_models = {current_model}
-        model_to_try = current_model
-        
-        while True:
-            try:
-                messages = [{"role": "system", "content": self.get_system_prompt()}]
-                for msg in self._history:
-                    role = msg["role"]
-                    content = msg.get("content", "").strip()
-                    if not content:
-                        continue
-                    if len(messages) > 1 and messages[-1]["role"] == role:
-                        messages[-1]["content"] += "\n\n" + content
-                    else:
-                        messages.append({"role": role, "content": content})
-                        
-                while len(messages) > 1 and messages[1]["role"] != "user":
-                    messages.pop(1)
-                
-                headers = {
-                    "Authorization": f"Bearer {self.groq_api_key}",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "model": model_to_try,
-                    "messages": messages,
-                    "temperature": 0.7,
-                    "max_tokens": 1024
-                }
-                import requests
-                resp = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    json=payload,
-                    headers=headers,
-                    timeout=(5, 25)
-                )
-                if resp.status_code == 401:
-                    raise Exception("Error 401: Invalid Groq API Key")
-                    
-                if resp.status_code in [400, 404, 429, 503]:
-                    raise Exception(f"HTTP {resp.status_code}: {resp.text}")
-                    
-                resp.raise_for_status()
-                data = resp.json()
-                raw = data["choices"][0]["message"]["content"]
-                
-                self._history.append({"role": "assistant", "content": raw})
-                if len(self._history) > 500:
-                    self._history = self._history[-500:]
-                    
-                # If switch was successful, notify UI and save
-                if model_to_try != self.groq_model:
-                    logger.info(f"Successfully switched to Groq fallback model: {model_to_try}")
-                    if self.on_model_switch:
-                        self.on_model_switch("groq", model_to_try, f"Model limit/error on {self.groq_model}")
-                    self.groq_model = model_to_try
-                    self.settings["groq_model"] = model_to_try
-                    save_settings(self.settings)
-                    
-                thinking, clean_raw = self._extract_thinking(raw)
-                clean, commands = self._parse(clean_raw)
-                return clean, commands, thinking
-            except Exception as api_err:
-                err_msg = str(api_err)
-                logger.warning(f"Groq attempt with model {model_to_try} failed: {err_msg}")
-                is_fallback_needed = any(code in err_msg for code in ["400", "404", "429", "503", "RateLimit", "Quota", "decommissioned"])
-                
-                if is_fallback_needed:
-                    next_candidate = None
-                    for c in candidates:
-                        if c not in tried_models:
-                            next_candidate = c
-                            break
-                    if next_candidate:
-                        logger.warning(f"Auto-switching Groq to fallback candidate: {next_candidate}...")
-                        model_to_try = next_candidate
-                        tried_models.add(next_candidate)
-                        continue
-                    else:
-                        logger.error("All Groq fallback model candidates exhausted!")
-                        raise api_err
-                else:
-                    raise api_err
-                    
-    def _send_ollama(self, text: str, image_path: str = None) -> tuple[str, list[tuple[str, str]], str | None]:
-        import requests
-        
-        # 1. Verify URL is configured
-        if not self.ollama_url:
-            raise Exception("Ollama URL is not configured")
-            
-        placeholders = {"Ollama offline / invalid URL", "Ollama offline", "Ollama error", "No models found"}
-        
-        candidates = []
-        if self.ollama_model and self.ollama_model not in placeholders:
-            candidates.append(self.ollama_model)
-            
-        # Try to fetch available models from Ollama to use as fallback candidates
-        try:
-            tags_url = f"{self.ollama_url.rstrip('/')}/api/tags"
-            tags_resp = requests.get(tags_url, timeout=3)
-            if tags_resp.status_code == 200:
-                tags_data = tags_resp.json()
-                for m in tags_data.get("models", []):
-                    m_name = m["name"]
-                    if m_name not in candidates and m_name not in placeholders:
-                        candidates.append(m_name)
-        except Exception as tags_err:
-            logger.warning(f"Could not fetch Ollama fallback candidates: {tags_err}")
-            # If tags fetch fails and we don't have any pre-existing valid model candidate, raise connection error immediately
-            if not candidates:
-                raise Exception(f"Ollama server at {self.ollama_url} is unreachable: {tags_err}")
-            
-        if not candidates:
-            raise Exception("No valid Ollama models configured or available on the server")
-            
-        current_model = candidates[0]
-        tried_models = {current_model}
-        model_to_try = current_model
-        
-        while True:
-            try:
-                messages = [{"role": "system", "content": self.get_system_prompt()}]
-                for msg in self._history:
-                    role = msg["role"]
-                    content = msg.get("content", "").strip()
-                    if not content:
-                        continue
-                    if len(messages) > 1 and messages[-1]["role"] == role:
-                        messages[-1]["content"] += "\n\n" + content
-                    else:
-                        messages.append({"role": role, "content": content})
-                        
-                while len(messages) > 1 and messages[1]["role"] != "user":
-                    messages.pop(1)
-                    
-                payload = {
-                    "model": model_to_try,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7
-                    }
-                }
-                url = f"{self.ollama_url.rstrip('/')}/api/chat"
-                resp = requests.post(url, json=payload, timeout=(5, 25))
-                resp.raise_for_status()
-                data = resp.json()
-                raw = data["message"]["content"]
-                
-                self._history.append({"role": "assistant", "content": raw})
-                if len(self._history) > 500:
-                    self._history = self._history[-500:]
-                    
-                # If switch was successful, notify UI and save
-                if model_to_try != self.ollama_model:
-                    logger.info(f"Successfully switched to Ollama fallback model: {model_to_try}")
-                    if self.on_model_switch:
-                        self.on_model_switch("ollama", model_to_try, f"Model error on {self.ollama_model}")
-                    self.ollama_model = model_to_try
-                    self.settings["ollama_model"] = model_to_try
-                    save_settings(self.settings)
-                    
-                thinking, clean_raw = self._extract_thinking(raw)
-                clean, commands = self._parse(clean_raw)
-                return clean, commands, thinking
-            except Exception as api_err:
-                err_msg = str(api_err)
-                logger.warning(f"Ollama attempt with model {model_to_try} failed: {err_msg}")
-                
-                next_candidate = None
-                for c in candidates:
-                    if c not in tried_models:
-                        next_candidate = c
-                        break
-                if next_candidate:
-                    logger.warning(f"Auto-switching Ollama to fallback candidate: {next_candidate}...")
-                    model_to_try = next_candidate
-                    tried_models.add(next_candidate)
-                    continue
-                else:
-                    logger.error("All Ollama fallback model candidates exhausted!")
-                    raise api_err
-                    
     def _extract_thinking(self, raw: str) -> tuple[str | None, str]:
         pattern = r"<think>(.*?)</think>"
         match = re.search(pattern, raw, re.DOTALL)
