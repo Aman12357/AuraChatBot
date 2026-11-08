@@ -3,6 +3,8 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const http = require("node:http");
+const https = require("node:https");
+const { execFileSync } = require("node:child_process");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -147,6 +149,124 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
       await Promise.race([once(appProcess, "exit"), delay(5000)]);
     }
     if (database) database.close();
+    fs.rmSync(dataDirectory, { recursive: true, force: true });
+  }
+});
+
+
+test("optional local HTTPS API rejects unpaired devices and accepts the local pairing key", async (t) => {
+  try {
+    execFileSync("openssl", ["version"], { stdio: "ignore" });
+  } catch (_) {
+    t.skip("OpenSSL is required to create the temporary TLS test certificate.");
+    return;
+  }
+
+  const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aleena-local-lan-"));
+  const certPath = path.join(dataDirectory, "test-cert.pem");
+  const keyPath = path.join(dataDirectory, "test-key.pem");
+  const pairingPath = path.join(dataDirectory, "local-pairing.key");
+  const pairingKey = "test-only-local-pairing-key-with-sufficient-length";
+
+  execFileSync("openssl", [
+    "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+    "-keyout", keyPath,
+    "-out", certPath,
+    "-days", "1",
+    "-subj", "/CN=localhost",
+    "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+  ], { stdio: "ignore" });
+  fs.writeFileSync(pairingPath, pairingKey, "utf8");
+
+  let appProcess;
+  let appOutput = "";
+
+  try {
+    const appProbe = http.createServer();
+    const appPort = await listen(appProbe);
+    await closeServer(appProbe);
+
+    const tlsProbe = http.createServer();
+    const tlsPort = await listen(tlsProbe);
+    await closeServer(tlsProbe);
+
+    const env = {
+      ...process.env,
+      NODE_ENV: "development",
+      PORT: String(appPort),
+      HOST: "127.0.0.1",
+      DATABASE_MODE: "sqlite",
+      ALEENA_DATA_DIR: dataDirectory,
+      DATABASE_URL: "",
+      JWT_SECRET: "test-only-local-secret-with-more-than-32-characters",
+      MASTER_EMAIL: "",
+      MASTER_SETUP_KEY: "",
+      AI_PROVIDER: "gemini",
+      GEMINI_API_KEY: "",
+      GEMINI_MODEL: "test-gemini-model",
+      LOCAL_LAN_ENABLED: "true",
+      LOCAL_LAN_HOST: "127.0.0.1",
+      LOCAL_LAN_PORT: String(tlsPort),
+      LOCAL_TLS_CERT_FILE: certPath,
+      LOCAL_TLS_KEY_FILE: keyPath,
+      LOCAL_PAIRING_KEY_FILE: pairingPath,
+    };
+
+    appProcess = spawn(
+      process.execPath,
+      [path.join(__dirname, "..", "server.js")],
+      { cwd: path.join(__dirname, ".."), env, stdio: ["ignore", "pipe", "pipe"] }
+    );
+    appProcess.stdout.on("data", (chunk) => { appOutput += chunk.toString(); });
+    appProcess.stderr.on("data", (chunk) => { appOutput += chunk.toString(); });
+
+    const baseUrl = "http://127.0.0.1:" + appPort;
+    const health = await waitForHealth(baseUrl + "/api/health", appProcess, () => appOutput);
+    assert.equal(health.database_mode, "sqlite");
+    assert.equal(health.ai_provider, "gemini");
+
+    async function secureHealth(headers = {}) {
+      return new Promise((resolve, reject) => {
+        const request = https.get(
+          "https://127.0.0.1:" + tlsPort + "/api/health",
+          { rejectUnauthorized: false, headers, timeout: 5000 },
+          (response) => {
+            let raw = "";
+            response.setEncoding("utf8");
+            response.on("data", (chunk) => { raw += chunk; });
+            response.on("end", () => resolve({
+              status: response.statusCode,
+              body: raw ? JSON.parse(raw) : {},
+            }));
+          }
+        );
+        request.on("timeout", () => request.destroy(new Error("HTTPS test request timed out.")));
+        request.on("error", reject);
+      });
+    }
+
+    let denied;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        denied = await secureHealth();
+        break;
+      } catch (_) {
+        await delay(100);
+      }
+    }
+    assert.ok(denied, "The optional HTTPS listener should start.");
+    assert.equal(denied.status, 403);
+    assert.match(denied.body.error, /not paired/i);
+
+    const allowed = await secureHealth({ "X-Aleena-Pairing-Key": pairingKey });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.body.database_mode, "sqlite");
+    assert.equal(allowed.body.ai_provider, "gemini");
+  } finally {
+    if (appProcess && appProcess.exitCode === null) {
+      appProcess.kill("SIGTERM");
+      await Promise.race([once(appProcess, "exit"), delay(5000)]);
+    }
     fs.rmSync(dataDirectory, { recursive: true, force: true });
   }
 });
