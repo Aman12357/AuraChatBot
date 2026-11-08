@@ -50,7 +50,7 @@ const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY;
 
 const GEMINI_MODEL =
-  process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const AI_PROVIDER = (process.env.AI_PROVIDER || "gemini").toLowerCase();
 if (AI_PROVIDER !== "gemini") {
   throw new Error("Unsupported AI_PROVIDER. Aleena is configured to use Gemini only.");
