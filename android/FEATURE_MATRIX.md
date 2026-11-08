@@ -19,7 +19,7 @@ Status meanings: Implemented in source = code exists but still needs automated/d
 | WhatsApp | Notification summaries | Setup required | Notification access enabled; supported incoming notifications are grouped and spoken |
 | WhatsApp | Local activity history and clear | Implemented in source | Metadata is stored locally and can be cleared |
 | WhatsApp | Silent typing activity detection | Not implemented | NotificationListenerService cannot observe personal-account typing states |
-| Android assistant | Default assistant role / VoiceInteractionService | Not implemented | Aleena can be selected as default assistant and invocation is tested on target device |
+| Android assistant | VoiceInteractionService entry point | Implemented in source; device validation pending | Aleena appears in Android voice-input settings; selecting/invoking it opens Aleena and requests voice startup |
 | Privacy | Lock-screen generic announcements | Implemented in source | Sensitive notification preview is not spoken while locked |
 | Reliability | Permission denial, provider absence, offline and service errors | Partial | Each failure has visible recovery guidance and no stuck listening state |
 | Delivery | CI debug APK | Implemented in source | GitHub Actions build passes; APK is installable on target Android version |
