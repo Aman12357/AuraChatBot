@@ -37,3 +37,13 @@ The model and AccessKey are intentionally excluded from Git. The key uses Androi
 - System assistant role / VoiceInteractionService, notification access, messaging, media-session controls, brightness and deeper automation are planned follow-up work, not claimed complete.
 
 No Gemini key, database credential or server secret is packaged in this application.
+
+## WhatsApp activity summaries (first notification milestone)
+1. Open Aleena Mobile and choose **Enable WhatsApp notification access**.
+2. In Android notification access settings, enable Aleena.
+3. Return to Aleena and use **Check WhatsApp access** to confirm.
+4. Keep WhatsApp notifications enabled and allow previews in Android/WhatsApp notification settings if you want preview-based summaries while the phone is unlocked.
+
+The listener processes only notifications from the standard WhatsApp package (`com.whatsapp`). It groups available notification previews briefly in memory, announces a grouped summary and stores only event metadata (conversation, sender label, count and time) in encrypted app preferences. Preview text is not stored in event history or sent to Aleena's cloud backend by this feature. When the lock screen is active, speech is reduced to a generic activity announcement. Do Not Disturb suppresses speech.
+
+**Typing is not implemented by notification access.** WhatsApp does not provide personal-account typing events through the standard Android notification stream. Any future visible-UI investigation is a separate, permission- and policy-gated feasibility task; it cannot promise detection when WhatsApp is closed or in the background.
