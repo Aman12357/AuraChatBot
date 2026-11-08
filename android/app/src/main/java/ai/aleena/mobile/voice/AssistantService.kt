@@ -61,7 +61,7 @@ class AssistantService:Service(),TextToSpeech.OnInitListener {
    "The user has explicitly enabled sharing selected saved memories with Aleena AI. Use this context only when relevant:\n$memoryContext\n\nUser request: $text"
   }
    val sessionId=SecurePrefs.get(this,KEY_SESSION_ID).takeIf{it.isNotBlank()}
-   AleenaApi.chat(token,prompt,sessionId){result->main.post{result.fold({reply->
+   AleenaApi.chat(this,token,prompt,sessionId){result->main.post{result.fold({reply->
     if(reply.sessionId.isNotBlank()) SecurePrefs.put(this,KEY_SESSION_ID,reply.sessionId)
     say(reply.response)
    },{error->
