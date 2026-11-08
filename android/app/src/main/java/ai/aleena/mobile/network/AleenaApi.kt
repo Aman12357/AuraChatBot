@@ -37,9 +37,10 @@ data class ChatReply(
 object AleenaApi {
     const val KEY_PC_BASE_URL = "pc_api_base_url"
     const val KEY_PC_CERT_SHA256 = "pc_api_certificate_sha256"
+    const val KEY_PC_PAIRING_KEY = "pc_api_pairing_key"
     private val type = "application/json; charset=utf-8".toMediaType()
 
-    fun savePcConnection(context: Context, baseUrl: String, fingerprint: String): Result<Unit> {
+    fun savePcConnection(context: Context, baseUrl: String, fingerprint: String, pairingKey: String): Result<Unit> {
         return runCatching {
             val normalizedUrl = baseUrl.trim().trimEnd('/')
             val uri = Uri.parse(normalizedUrl)
@@ -56,14 +57,20 @@ object AleenaApi {
             }
 
             val pin = normalizeFingerprint(fingerprint)
+            val localPairingKey = pairingKey.trim()
+            require(localPairingKey.length >= 32 && localPairingKey.none { it.isWhitespace() }) {
+                "Enter the complete local pairing key printed by the PC setup script."
+            }
             SecurePrefs.put(context, KEY_PC_BASE_URL, normalizedUrl)
             SecurePrefs.put(context, KEY_PC_CERT_SHA256, pin)
+            SecurePrefs.put(context, KEY_PC_PAIRING_KEY, localPairingKey)
         }
     }
 
     fun clearPcConnection(context: Context) {
         SecurePrefs.put(context, KEY_PC_BASE_URL, "")
         SecurePrefs.put(context, KEY_PC_CERT_SHA256, "")
+        SecurePrefs.put(context, KEY_PC_PAIRING_KEY, "")
         SecurePrefs.put(context, AssistantKeys.TOKEN, "")
         SecurePrefs.put(context, AssistantKeys.SESSION_ID, "")
     }
@@ -81,11 +88,15 @@ object AleenaApi {
         return normalized
     }
 
-    private data class Connection(val baseUrl: String, val http: OkHttpClient)
+    private data class Connection(val baseUrl: String, val http: OkHttpClient, val pairingKey: String)
 
     private fun connection(context: Context): Connection {
         val base = SecurePrefs.get(context, KEY_PC_BASE_URL).trim().trimEnd('/')
         val fingerprint = normalizeFingerprint(SecurePrefs.get(context, KEY_PC_CERT_SHA256))
+        val pairingKey = SecurePrefs.get(context, KEY_PC_PAIRING_KEY).trim()
+        require(pairingKey.length >= 32 && pairingKey.none { it.isWhitespace() }) {
+            "Pair Aleena with your PC first. Enter the local pairing key printed by the PC."
+        }
         val uri = Uri.parse(base)
         require(uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()) {
             "Pair Aleena with your PC first. Enter its secure https:// address and certificate fingerprint."
@@ -123,7 +134,7 @@ object AleenaApi {
             .callTimeout(100, TimeUnit.SECONDS)
             .build()
 
-        return Connection(base, client)
+        return Connection(base, client, pairingKey)
     }
 
     fun checkPcConnection(context: Context, done: (Result<String>) -> Unit) {
@@ -133,7 +144,11 @@ object AleenaApi {
             return
         }
         val connection = config.getOrThrow()
-        val request = Request.Builder().url("${connection.baseUrl}/api/health").get().build()
+        val request = Request.Builder()
+            .url("${connection.baseUrl}/api/health")
+            .header("X-Aleena-Pairing-Key", connection.pairingKey)
+            .get()
+            .build()
         connection.http.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 done(Result.failure(IllegalStateException(
@@ -179,7 +194,11 @@ object AleenaApi {
         val body = JSONObject().put("email", email).put("password", password)
             .toString().toRequestBody(type)
         connection.http.newCall(
-            Request.Builder().url("${connection.baseUrl}/api/auth/login").post(body).build()
+            Request.Builder()
+                .url("${connection.baseUrl}/api/auth/login")
+                .header("X-Aleena-Pairing-Key", connection.pairingKey)
+                .post(body)
+                .build()
         ).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 done(Result.failure(e))
@@ -220,6 +239,7 @@ object AleenaApi {
         val request = Request.Builder()
             .url("${connection.baseUrl}/api/chat")
             .header("Authorization", "Bearer $token")
+            .header("X-Aleena-Pairing-Key", connection.pairingKey)
             .post(bodyJson.toString().toRequestBody(type))
             .build()
 
