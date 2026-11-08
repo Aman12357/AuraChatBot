@@ -11,13 +11,13 @@ Native Android companion for AuraChatBot. Android source remains a separate Grad
 ## Secure PC pairing and local chat storage
 1. On the PC, follow the root [Gemini + local SQLite setup guide](../docs/LOCAL_FIRST_SETUP.md).
 2. Install the Python dependencies, then run `python scripts/generate_local_tls.py` from the repository root.
-3. Copy the local HTTPS address and SHA-256 certificate fingerprint printed by the script.
+3. Copy the local HTTPS address, SHA-256 certificate fingerprint, and local pairing key printed by the script.
 4. In the PC's private `.env`, set `LOCAL_LAN_ENABLED=true`, keep `DATABASE_MODE=sqlite`, `AI_PROVIDER=gemini`, and set a private `GEMINI_API_KEY`. Keep the ordinary `HOST=127.0.0.1`; the optional mobile listener uses `LOCAL_LAN_HOST=0.0.0.0` and port `8767`.
 5. Restart the PC backend. In Windows Firewall, allow the Aleena Node process only on your **Private** home network, not Public networks.
-6. On Android, enter the PC address (for example `https://192.168.1.20:8767`) and the exact 64-character SHA-256 fingerprint, save them, and tap **Check PC connection**.
+6. On Android, enter the PC address (for example `https://192.168.1.20:8767`), exact 64-character SHA-256 fingerprint, and local pairing key, save them, and tap **Check PC connection**.
 7. Sign in using the account created on the PC-local Aleena web app.
 
-- Login and chat use certificate-pinned HTTPS. The app trusts only the exact self-signed certificate whose fingerprint was copied from the PC.
+- Login and chat use certificate-pinned HTTPS. The app trusts only the exact self-signed certificate whose fingerprint was copied from the PC, and the server also requires the separately generated local pairing key in every API request.
 - The PC API validates that it is running `DATABASE_MODE=sqlite` and `AI_PROVIDER=gemini` before the app reports a successful pairing.
 - The client keeps its token, PC address, certificate pin and returned `session_id` in Android encrypted app-private preferences.
 - The phone and PC must remain on the same trusted Wi-Fi network. The PC must be powered on and the LAN listener enabled.
