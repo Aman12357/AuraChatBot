@@ -380,13 +380,28 @@ class MainActivity : AppCompatActivity() {
             "The user explicitly opted in to sharing these relevant saved memories with Aleena AI:\n$contextText\n\nUser request: $message"
         }
         val sessionId = SecurePrefs.get(this, AssistantService.KEY_SESSION_ID).takeIf { it.isNotBlank() }
-        AleenaApi.chat(this, token, requestText, sessionId) { result ->
+        AleenaApi.chat(
+            this,
+            token,
+            requestText,
+            sessionId,
+            onPartial = { partial ->
+                runOnUiThread {
+                    chatOutput.text = "You: $message\n\nAleena: $partial"
+                }
+            }
+        ) { result ->
             runOnUiThread {
                 chatInput.isEnabled = true
                 result.fold(
                     { reply ->
                         if (reply.sessionId.isNotBlank()) SecurePrefs.put(this, AssistantService.KEY_SESSION_ID, reply.sessionId)
-                        chatOutput.text = "You: $message\n\nAleena: ${reply.response}"
+                        val modelLabel = if (reply.model.isNotBlank()) {
+                            "\n\nModel: ${reply.model} · thinking: ${reply.thinkingLevel}"
+                        } else {
+                            ""
+                        }
+                        chatOutput.text = "You: $message\n\nAleena: ${reply.response}$modelLabel"
                         chatInput.text.clear()
                     },
                     { error ->
