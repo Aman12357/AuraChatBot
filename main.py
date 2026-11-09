@@ -145,7 +145,7 @@ DEFAULT_SETTINGS = {
     "custom_logo_path": "",           # Path to custom sidebar logo image
     "wake_word": "hey assistant",
     "ai_provider": "gemini",
-    "gemini_model": "gemini-3.5-flash-lite",
+    "gemini_model": "gemini-3.8-flash",
     "face_login_enabled": False,
     "face_backup_pin": "",
     "startup_clip_path": "",
@@ -1029,11 +1029,11 @@ class AIClient:
             self.settings["ai_provider"] = "gemini"
             save_settings(self.settings)
         self.provider = "gemini"
-        # Migrate the previous default to the faster Flash-Lite model.
-        if self.settings.get("gemini_model") in (None, "", "gemini-3.6-flash"):
-            self.settings["gemini_model"] = "gemini-3.5-flash-lite"
+        # Upgrade prior Aleena default selections to Gemini 3.8 Flash.
+        if self.settings.get("gemini_model") in (None, "", "gemini-3.5-flash-lite", "gemini-3.6-flash"):
+            self.settings["gemini_model"] = "gemini-3.8-flash"
             save_settings(self.settings)
-        self.gemini_model = self.settings.get("gemini_model", "gemini-3.5-flash-lite")
+        self.gemini_model = self.settings.get("gemini_model", "gemini-3.8-flash")
         gemini_key = self.settings.get("gemini_api_key", "")
         if gemini_key:
             try:
@@ -1922,17 +1922,9 @@ If nothing relevant is found, return empty lists.
                 parts.append({"text": text})
                 contents.append({"role": "user", "parts": parts})
                 
-            # List of model candidates we can try in order if the active one fails
-            candidates = [
-                "gemini-3.6-flash",
-                "gemini-2.5-flash",
-                "gemini-2.0-flash-lite",
-                "gemini-2.0-flash",
-                "gemini-1.5-flash",
-                "gemini-2.5-pro",
-                "gemini-1.5-pro",
-                "gemini-3.5-flash"
-            ]
+            # Never silently downgrade a Gemini 3.8 request to a legacy model.
+            # If a user has an explicit custom model configured, 3.8 is the only fallback.
+            candidates = ["gemini-3.8-flash"]
             
             current_model = self.gemini_model
             resp = None
@@ -1949,12 +1941,12 @@ If nothing relevant is found, return empty lists.
                                 system_instruction=self.get_system_prompt(),
                                 max_output_tokens=4096,
                                 thinking_config=types.ThinkingConfig(
-                                    thinking_level="minimal"
+                                    thinking_level="low"
                                 ),
                             ),
                         )
                     except Exception as config_err:
-                        logger.warning(f"Gemini generate_content for {model_to_try} with config failed: {config_err}. Retrying with minimal config...")
+                        logger.warning(f"Gemini generate_content for {model_to_try} with config failed: {config_err}. Retrying with default generation settings...")
                         resp = self._gemini_client.models.generate_content(
                             model=model_to_try,
                             contents=contents
@@ -1985,7 +1977,7 @@ If nothing relevant is found, return empty lists.
                             tried_models.add(next_candidate)
                             continue
                         else:
-                            logger.error("All Gemini fallback model candidates exhausted!")
+                            logger.error("Gemini request failed and no non-3.8 fallback model is configured.")
                             raise api_err
                     else:
                         raise api_err
