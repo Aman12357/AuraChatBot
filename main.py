@@ -145,7 +145,7 @@ DEFAULT_SETTINGS = {
     "custom_logo_path": "",           # Path to custom sidebar logo image
     "wake_word": "hey assistant",
     "ai_provider": "gemini",
-    "gemini_model": "gemini-3.6-flash",
+    "gemini_model": "gemini-3.5-flash-lite",
     "face_login_enabled": False,
     "face_backup_pin": "",
     "startup_clip_path": "",
@@ -1029,7 +1029,11 @@ class AIClient:
             self.settings["ai_provider"] = "gemini"
             save_settings(self.settings)
         self.provider = "gemini"
-        self.gemini_model = self.settings.get("gemini_model", "gemini-3.6-flash")
+        # Migrate the previous default to the faster Flash-Lite model.
+        if self.settings.get("gemini_model") in (None, "", "gemini-3.6-flash"):
+            self.settings["gemini_model"] = "gemini-3.5-flash-lite"
+            save_settings(self.settings)
+        self.gemini_model = self.settings.get("gemini_model", "gemini-3.5-flash-lite")
         gemini_key = self.settings.get("gemini_api_key", "")
         if gemini_key:
             try:
@@ -1943,8 +1947,10 @@ If nothing relevant is found, return empty lists.
                             contents=contents,
                             config=types.GenerateContentConfig(
                                 system_instruction=self.get_system_prompt(),
-                                temperature=0.7,
-                                max_output_tokens=8192,
+                                max_output_tokens=4096,
+                                thinking_config=types.ThinkingConfig(
+                                    thinking_level="minimal"
+                                ),
                             ),
                         )
                     except Exception as config_err:
