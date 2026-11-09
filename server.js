@@ -526,7 +526,7 @@ async function getHistory(sessionId, userId, limit = 100) {
     return result.rows.reverse();
   }
 
-  return inMemoryStore.messages[sessionId] || [];
+  return (inMemoryStore.messages[sessionId] || []).slice(-limit);
 }
 
 /* =========================================================
