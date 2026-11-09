@@ -76,6 +76,12 @@ export default function ChatBubble({ message, index }: ChatBubbleProps) {
               {message.emotion}
             </span>
           )}
+          {message.model && (
+            <span className="rounded-full border border-cyan-300/15 bg-cyan-300/[0.05] px-2 py-0.5 text-[10px] text-cyan-100/75">
+              {message.model}
+              {message.thinkingLevel ? ` · ${message.thinkingLevel}` : ''}
+            </span>
+          )}
         </div>
       </div>
     </motion.div>

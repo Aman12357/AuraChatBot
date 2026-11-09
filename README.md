@@ -32,6 +32,8 @@ npm run dev
 ### Step 4: Open in Browser
 👉 **http://localhost:3000**
 
+The integrated hologram interface is available from the **Hologram** tab in the main dashboard, or directly at **http://localhost:3000/aleena-companion.html**. It uses the same PC-local Gemini 3.8 API and reuses the signed-in Aleena account session.
+
 ---
 
 ## ✨ Features Included:

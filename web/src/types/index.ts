@@ -4,6 +4,8 @@ export interface Message {
   content: string;
   timestamp: number;
   emotion?: string;
+  model?: string;
+  thinkingLevel?: string;
 }
 
 export interface Session {

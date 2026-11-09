@@ -12,6 +12,8 @@
  */
 
 const http = require("http");
+const https = require("https");
+const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 const express = require("express");
@@ -33,6 +35,14 @@ require("dotenv").config();
 
 const PORT = Number(process.env.PORT || 8765);
 const NODE_ENV = process.env.NODE_ENV || "production";
+const LOCAL_LAN_ENABLED = String(process.env.LOCAL_LAN_ENABLED || "false").toLowerCase() === "true";
+const LOCAL_LAN_PORT = Number(process.env.LOCAL_LAN_PORT || 8767);
+const LOCAL_LAN_HOST = process.env.LOCAL_LAN_HOST || "0.0.0.0";
+const LOCAL_TLS_CERT_FILE = path.resolve(process.env.LOCAL_TLS_CERT_FILE || path.join(__dirname, "data", "local-server-cert.pem"));
+const LOCAL_TLS_KEY_FILE = path.resolve(process.env.LOCAL_TLS_KEY_FILE || path.join(__dirname, "data", "local-server-key.pem"));
+const LOCAL_PAIRING_KEY_FILE = path.resolve(
+  process.env.LOCAL_PAIRING_KEY_FILE || path.join(__dirname, "data", "local-pairing.key")
+);
 
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "http://localhost:3000";
@@ -49,18 +59,43 @@ const ALEENA_DATA_DIR = path.resolve(
 const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY;
 
-const GEMINI_MODEL =
-  process.env.GEMINI_MODEL || "gemini-3.8-flash";
-const AI_PROVIDER = (
-  process.env.AI_PROVIDER || (NODE_ENV === "production" ? "gemini" : "ollama")
-).toLowerCase();
-const OLLAMA_BASE_URL = (
-  process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-).replace(/\/$/, "");
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "deepseek-r1:8b";
+// Gemini 3.8 Flash is the single default model for routine and complex requests.
+// Upgrade the prior Aleena defaults automatically, while preserving deliberate custom IDs.
+const LEGACY_GEMINI_DEFAULTS = new Set(["gemini-3.5-flash-lite", "gemini-3.6-flash"]);
+function resolveGeminiModel(value) {
+  const configured = (value || "").trim();
+  return !configured || LEGACY_GEMINI_DEFAULTS.has(configured)
+    ? "gemini-3.8-flash"
+    : configured;
+}
+const GEMINI_MODEL = resolveGeminiModel(process.env.GEMINI_MODEL);
+const GEMINI_REASONING_MODEL = resolveGeminiModel(process.env.GEMINI_REASONING_MODEL);
 
-function getActiveModel() {
-  return AI_PROVIDER === "ollama" ? OLLAMA_MODEL : GEMINI_MODEL;
+// Gemini 3.8 Flash supports low/medium/high; the old `minimal` setting is not valid.
+function normalizeThinkingLevel(value, fallback) {
+  const configured = (value || fallback).trim().toLowerCase();
+  if (configured === "minimal") return "low";
+  return ["low", "medium", "high"].includes(configured) ? configured : fallback;
+}
+const GEMINI_THINKING_LEVEL = normalizeThinkingLevel(process.env.GEMINI_THINKING_LEVEL, "low");
+const GEMINI_COMPLEX_THINKING_LEVEL = normalizeThinkingLevel(process.env.GEMINI_COMPLEX_THINKING_LEVEL, "medium");
+const AI_PROVIDER = (process.env.AI_PROVIDER || "gemini").toLowerCase();
+if (AI_PROVIDER !== "gemini") {
+  throw new Error("Unsupported AI_PROVIDER. Aleena is configured to use Gemini only.");
+}
+
+const COMPLEX_PROMPT_PATTERN = /\b(debug|debugging|refactor|architecture|architect|implement|write code|generate code|build (?:an?|the) app|algorithm|prove|proof|derive|analy[sz]e|review|optimi[sz]e|compare|step[- ]by[- ]step|multi[- ]step|technical design|system design|production[- ]ready)\b/i;
+
+function isComplexPrompt(message = "") {
+  return message.length >= 900 || COMPLEX_PROMPT_PATTERN.test(message);
+}
+
+function getActiveModel(message = "") {
+  return isComplexPrompt(message) ? GEMINI_REASONING_MODEL : GEMINI_MODEL;
+}
+
+function getThinkingLevel(message = "") {
+  return isComplexPrompt(message) ? GEMINI_COMPLEX_THINKING_LEVEL : GEMINI_THINKING_LEVEL;
 }
 
 const JWT_SECRET =
@@ -92,6 +127,7 @@ if (!AUTH_CONFIGURED) {
 
 let pool = null;
 let localDatabase = null;
+let localLanServer = null;
 
 if (DATABASE_MODE === "postgres" && DATABASE_URL) {
   pool = new Pool({
@@ -196,9 +232,9 @@ if (AI_PROVIDER === "gemini" && GEMINI_API_KEY) {
    ========================================================= */
 
 const app = express();
-// Render terminates TLS and forwards one trusted proxy hop. This must be set
-// before express-rate-limit so forwarded client IPs are handled correctly.
-app.set("trust proxy", 1);
+// Render terminates TLS and forwards one trusted proxy hop in production.
+// The local PC/LAN listeners are direct connections and must not trust user-supplied X-Forwarded-* headers.
+app.set("trust proxy", NODE_ENV === "production" ? 1 : 0);
 const server = http.createServer(app);
 
 /* Security */
@@ -243,6 +279,29 @@ const apiLimiter = rateLimit({
 });
 
 app.use("/api/", apiLimiter);
+
+// The TLS listener is reachable on the home LAN only when explicitly enabled.
+// Require a second, locally generated pairing key in addition to certificate pinning.
+// Use socket.encrypted rather than req.secure so forwarded headers cannot bypass this check.
+app.use("/api/", (req, res, next) => {
+  if (!LOCAL_LAN_ENABLED || !req.socket.encrypted) return next();
+
+  let expected = "";
+  try {
+    expected = fs.readFileSync(LOCAL_PAIRING_KEY_FILE, "utf8").trim();
+  } catch (_) {
+    return res.status(503).json({
+      error: "Local pairing is not configured. Run: python scripts/generate_local_tls.py",
+    });
+  }
+
+  const provided = req.get("X-Aleena-Pairing-Key") || "";
+  if (!safeSecretEquals(provided, expected)) {
+    return res.status(403).json({ error: "This device is not paired with the Aleena PC." });
+  }
+
+  return next();
+});
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -473,14 +532,16 @@ async function getHistory(sessionId, userId, limit = 100) {
        FROM chat_messages m
        INNER JOIN chat_sessions s ON s.session_id = m.session_id
        WHERE m.session_id = $1 AND s.user_id = $2
-       ORDER BY m.id ASC
+       ORDER BY m.id DESC
        LIMIT $3`,
       [sessionId, userId, limit]
     );
-    return result.rows;
+    // The database returns newest first for a fast bounded query; the model
+    // expects chronological conversation order.
+    return result.rows.reverse();
   }
 
-  return inMemoryStore.messages[sessionId] || [];
+  return (inMemoryStore.messages[sessionId] || []).slice(-limit);
 }
 
 /* =========================================================
@@ -541,250 +602,65 @@ function buildGeminiContents(history) {
    GEMINI RESPONSE
    ========================================================= */
 
-async function generateAIResponse(
-  message,
-  sessionId,
-  userId
-) {
-  // Local-first mode: call only the Ollama server on this machine.
-  // Do not fall through to Gemini, Pollinations or another hosted service.
-  if (AI_PROVIDER === "ollama") {
-    try {
-      const history = await getHistory(sessionId, userId, 20);
-      const previousMessages = history.length > 0 ? history.slice(0, -1) : [];
-      const messages = [
-        { role: "system", content: SYSTEM_PROMPT },
-        ...previousMessages.map((item) => ({
-          role: item.role === "user" ? "user" : "assistant",
-          content: item.content || "",
-        })),
-        { role: "user", content: message },
-      ];
-
-      const response = await fetch(OLLAMA_BASE_URL + "/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: OLLAMA_MODEL,
-          messages,
-          stream: false,
-        }),
-        signal: AbortSignal.timeout(120000),
-      });
-
-      if (!response.ok) {
-        throw new Error("Ollama returned HTTP " + response.status);
-      }
-
-      const payload = await response.json();
-      const responseText = payload?.message?.content?.trim();
-      if (!responseText) {
-        throw new Error("Ollama returned an empty response.");
-      }
-
-      console.log("[AI] Local Ollama response generated using " + OLLAMA_MODEL + ".");
-      return responseText;
-    } catch (error) {
-      console.error("[AI] Local Ollama request failed:", error.message);
-      return (
-        "I could not reach your local Ollama model at " + OLLAMA_BASE_URL +
-        ". Start Ollama and make sure the model is installed. Run: ollama pull " +
-        OLLAMA_MODEL +
-        ". No cloud AI fallback was used."
-      );
-    }
-  }
-  /*
-   1. Gemini
-  */
+async function generateAIResponse(message, sessionId, userId, onToken = null) {
+  const startedAt = Date.now();
+  const selectedModel = getActiveModel(message);
+  const thinkingLevel = getThinkingLevel(message);
+  let partialText = "";
 
   if (genAI) {
     try {
-      const history =
-        await getHistory(
-          sessionId,
-          userId,
-          20
-        );
-
-      /*
-       User message was already saved
-       before this function is called,
-       so remove the last user message.
-      */
-
-      const previousHistory =
-        history.length > 0
-          ? history.slice(0, -1)
-          : [];
-
-      const contents =
-        buildGeminiContents(
-          previousHistory
-        );
-
+      // Keep only the latest six user/assistant turns to reduce prompt processing.
+      const history = await getHistory(sessionId, userId, 12);
+      const previousHistory = history.length > 0 ? history.slice(0, -1) : [];
+      const contents = buildGeminiContents(previousHistory);
       const request = {
-        model: getActiveModel(),
-        contents: [
-          ...contents,
-          {
-            role: "user",
-            parts: [
-              {
-                text: message,
-              },
-            ],
-          },
-        ],
+        model: selectedModel,
+        contents: [...contents, { role: "user", parts: [{ text: message }] }],
         config: {
-          systemInstruction:
-            SYSTEM_PROMPT,
+          systemInstruction: SYSTEM_PROMPT,
           maxOutputTokens: 4096,
+          thinkingConfig: { thinkingLevel },
         },
       };
 
-      const response =
-        await genAI.models.generateContent(
-          request
-        );
+      // Stream genuine Gemini chunks as they arrive instead of waiting for the full answer.
+      const stream = await genAI.models.generateContentStream(request);
+      for await (const chunk of stream) {
+        const token = typeof chunk?.text === "string" ? chunk.text : "";
+        if (!token) continue;
+        partialText += token;
+        if (onToken) onToken(token);
+      }
 
-      const responseText =
-        response &&
-        typeof response.text === "string"
-          ? response.text.trim()
-          : "";
-
+      const responseText = partialText.trim();
       if (responseText) {
-        console.log(
-          `[AI] Gemini response generated using ${GEMINI_MODEL}.`
-        );
-
+        console.log("[AI] " + selectedModel + " replied in " + (Date.now() - startedAt) + "ms (thinking: " + thinkingLevel + ").");
         return responseText;
       }
-
-      throw new Error(
-        "Gemini returned an empty response."
-      );
+      throw new Error("Gemini returned an empty response.");
     } catch (error) {
-      console.error(
-        "[AI] Gemini request failed:",
-        error.message
-      );
+      console.error("[AI] Gemini request failed on " + selectedModel + " after " + (Date.now() - startedAt) + "ms:", error.message);
+      // If tokens were already delivered, do not duplicate the answer with a fallback.
+      if (partialText.trim()) return partialText.trim();
     }
   }
 
-  /*
-   2. Optional Pollinations fallback
-  */
-
-  try {
-    const history =
-      await getHistory(
-        sessionId,
-        userId,
-        6
-      );
-
-    const messagesPayload = [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT,
-      },
-
-      ...history
-        .slice(0, -1)
-        .map((item) => ({
-          role:
-            item.role === "user"
-              ? "user"
-              : "assistant",
-          content:
-            item.content || "",
-        })),
-
-      {
-        role: "user",
-        content: message,
-      },
-    ];
-
-    const response =
-      await fetch(
-        "https://text.pollinations.ai/",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            messages:
-              messagesPayload,
-            model: "openai",
-          }),
-        }
-      );
-
-    if (response.ok) {
-      const text =
-        await response.text();
-
-      if (text && text.trim()) {
-        console.log(
-          "[AI] Pollinations fallback response received."
-        );
-
-        return text.trim();
-      }
-    }
-  } catch (error) {
-    console.error(
-      "[AI] Pollinations fallback failed:",
-      error.message
-    );
+  // Safe local fallback when Gemini is not configured or unavailable.
+  const lower = message.toLowerCase();
+  let fallback;
+  if (lower.includes("who are you") || lower.includes("your name") || lower.includes("name aleena")) {
+    fallback = "I am Aleena AI, your intelligent digital companion.";
+  } else if (/\b(hello|hi|hey)\b/i.test(lower)) {
+    fallback = "Hello! I am Aleena. How can I help you today?";
+  } else if (/\b(code|program|debug|programming)\b/i.test(lower)) {
+    fallback = "I can help you with coding, debugging, explanations, algorithms and software projects.";
+  } else {
+    fallback = "I received your message, but the AI service is currently unavailable. Please check the Gemini API configuration.";
   }
-
-  /*
-   3. Safe local fallback
-  */
-
-  const lower =
-    message.toLowerCase();
-
-  if (
-    lower.includes("who are you") ||
-    lower.includes("your name") ||
-    lower.includes("name aleena")
-  ) {
-    return (
-      "I am Aleena AI, your intelligent digital companion."
-    );
-  }
-
-  if (
-    lower.includes("hello") ||
-    lower.includes("hi") ||
-    lower.includes("hey")
-  ) {
-    return (
-      "Hello! I am Aleena. How can I help you today?"
-    );
-  }
-
-  if (
-    lower.includes("code") ||
-    lower.includes("program")
-  ) {
-    return (
-      "I can help you with coding, debugging, explanations, algorithms and software projects."
-    );
-  }
-
-  return (
-    "I received your message, but the AI service is currently unavailable. Please check the Gemini API configuration."
-  );
+  if (onToken) onToken(fallback);
+  return fallback;
 }
-
 /* =========================================================
    HEALTH
    ========================================================= */
@@ -813,8 +689,11 @@ app.get(
       database,
       database_mode: DATABASE_MODE,
       ai_provider: AI_PROVIDER,
-      ai_provider_configured: AI_PROVIDER === "ollama" || Boolean(genAI),
+      ai_provider_configured: Boolean(genAI),
       model: getActiveModel(),
+      reasoning_model: GEMINI_REASONING_MODEL,
+      thinking_level: GEMINI_THINKING_LEVEL,
+      complex_thinking_level: GEMINI_COMPLEX_THINKING_LEVEL,
       timestamp:
         new Date().toISOString(),
     });
@@ -829,37 +708,6 @@ app.get(
   "/api/ai-test",
   requireAuth,
   async (req, res) => {
-    if (AI_PROVIDER === "ollama") {
-      try {
-        const response = await fetch(OLLAMA_BASE_URL + "/api/tags", {
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!response.ok) {
-          throw new Error("Ollama returned HTTP " + response.status);
-        }
-        const payload = await response.json();
-        const installed = (payload.models || []).some((item) =>
-          item.name === OLLAMA_MODEL || item.name?.startsWith(OLLAMA_MODEL + ":")
-        );
-        return res.json({
-          status: installed ? "ok" : "model-not-installed",
-          provider: AI_PROVIDER,
-          model: OLLAMA_MODEL,
-          installed,
-          message: installed
-            ? "Local Ollama is reachable and the configured model is installed."
-            : "Ollama is reachable, but the configured model is not installed. Run: ollama pull " + OLLAMA_MODEL,
-        });
-      } catch (error) {
-        return res.status(503).json({
-          status: "error",
-          provider: AI_PROVIDER,
-          model: OLLAMA_MODEL,
-          message: "Local Ollama is unavailable at " + OLLAMA_BASE_URL + ": " + error.message,
-        });
-      }
-    }
-
     if (!genAI) {
       return res.status(503).json({
         status: "error",
@@ -1235,20 +1083,55 @@ app.post(
       return res.status(400).json({ error: "Message is required." });
     }
 
+    const prompt = message.trim();
+    const wantsStream = /text\/event-stream/i.test(req.get("accept") || "");
+
     try {
       const userId = req.user.userId;
       const session = session_id
         ? await getUserSession(session_id, userId)
         : await ensureDefaultSession(userId);
 
-      if (!session) {
-        return res.status(404).json({ error: "Session not found." });
-      }
+      if (!session) return res.status(404).json({ error: "Session not found." });
 
       const activeSessionId = session.session_id;
-      await saveMessage(activeSessionId, userId, "user", message.trim());
+      await saveMessage(activeSessionId, userId, "user", prompt);
 
-      const reply = await generateAIResponse(message.trim(), activeSessionId, userId);
+      if (wantsStream) {
+        res.status(200);
+        res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        res.flushHeaders?.();
+
+        const sendEvent = (event) => {
+          if (!res.destroyed && !res.writableEnded) {
+            res.write("data: " + JSON.stringify(event) + "\n\n");
+          }
+        };
+
+        sendEvent({ type: "status", status: "thinking" });
+        const reply = await generateAIResponse(
+          prompt,
+          activeSessionId,
+          userId,
+          (token) => sendEvent({ type: "token", token })
+        );
+        const emotion = detectEmotion(reply);
+        await saveMessage(activeSessionId, userId, "assistant", reply, emotion);
+        sendEvent({
+          type: "done",
+          response: reply,
+          session_id: activeSessionId,
+          emotion,
+          model: getActiveModel(prompt),
+          thinking_level: getThinkingLevel(prompt),
+        });
+        return res.end();
+      }
+
+      const reply = await generateAIResponse(prompt, activeSessionId, userId);
       const emotion = detectEmotion(reply);
       await saveMessage(activeSessionId, userId, "assistant", reply, emotion);
 
@@ -1257,10 +1140,18 @@ app.post(
         response: reply,
         session_id: activeSessionId,
         emotion,
-        model: getActiveModel(),
+        model: getActiveModel(prompt),
+        thinking_level: getThinkingLevel(prompt),
       });
     } catch (error) {
       console.error("[CHAT] Error:", error.message);
+      if (res.headersSent) {
+        if (!res.destroyed && !res.writableEnded) {
+          res.write("data: " + JSON.stringify({ type: "error", error: "AI response generation failed." }) + "\n\n");
+          res.end();
+        }
+        return;
+      }
       return res.status(error.statusCode || 500).json({
         error: error.statusCode ? error.message : "AI response generation failed.",
       });
@@ -1282,6 +1173,8 @@ app.get(
         "en-IN",
       provider: AI_PROVIDER,
       model: getActiveModel(),
+      reasoning_model: GEMINI_REASONING_MODEL,
+      thinking_level: GEMINI_THINKING_LEVEL,
     });
   }
 );
@@ -1372,36 +1265,18 @@ wss.on("connection", (ws) => {
         await saveMessage(sessionId, userId, "user", text);
         ws.send(JSON.stringify({ type: "status.update", data: { status: "thinking" } }));
 
-        const reply = await generateAIResponse(text, sessionId, userId);
-        const emotion = detectEmotion(reply);
-        const parts = reply.split(/(\s+)/);
-        let chunk = "";
-
-        for (let i = 0; i < parts.length; i++) {
-          chunk += parts[i];
-          if (
-            chunk.length >= 24 ||
-            parts[i].trim().endsWith(".") ||
-            parts[i].trim().endsWith("!") ||
-            parts[i].trim().endsWith("?")
-          ) {
-            if (ws.readyState === 1) {
-              ws.send(JSON.stringify({ type: "chat.stream", data: { token: chunk } }));
-            }
-            chunk = "";
-            await new Promise((resolve) => setTimeout(resolve, 15));
+        const reply = await generateAIResponse(text, sessionId, userId, (token) => {
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: "chat.stream", data: { token } }));
           }
-        }
-
-        if (chunk && ws.readyState === 1) {
-          ws.send(JSON.stringify({ type: "chat.stream", data: { token: chunk } }));
-        }
+        });
+        const emotion = detectEmotion(reply);
 
         await saveMessage(sessionId, userId, "assistant", reply, emotion);
         if (ws.readyState === 1) {
           ws.send(JSON.stringify({
             type: "chat.done",
-            data: { full_response: reply, emotion, session_id: sessionId },
+            data: { full_response: reply, emotion, session_id: sessionId, model: getActiveModel(text), thinking_level: getThinkingLevel(text) },
           }));
           ws.send(JSON.stringify({ type: "status.update", data: { status: "ready" } }));
         }
@@ -1502,22 +1377,36 @@ async function startServer() {
   // Initialize local persistence before accepting authenticated requests.
   await initializeDatabase();
 
-  server.listen(
-    PORT,
-    process.env.HOST || "0.0.0.0",
-    () => {
-      console.log(
-        `[SERVER] Aleena AI listening on port ${PORT}.`
-      );
+  server.listen(PORT, process.env.HOST || "127.0.0.1", () => {
+    console.log(`[SERVER] Aleena local API listening on ${process.env.HOST || "127.0.0.1"}:${PORT}.`);
+    console.log(`[SERVER] Environment: ${NODE_ENV}`);
+    console.log(`[SERVER] Database mode: ${DATABASE_MODE}`);
+    console.log(`[SERVER] AI provider: ${AI_PROVIDER}; model: ${getActiveModel()}`);
+  });
 
-      console.log(
-        `[SERVER] Environment: ${NODE_ENV}`
+  if (LOCAL_LAN_ENABLED) {
+    if (!fs.existsSync(LOCAL_TLS_CERT_FILE) || !fs.existsSync(LOCAL_TLS_KEY_FILE)) {
+      throw new Error(
+        "Secure phone access is enabled but the TLS certificate/key are missing. Run: python scripts/generate_local_tls.py"
       );
-
-      console.log(`[SERVER] Database mode: ${DATABASE_MODE}`);
-      console.log(`[SERVER] AI provider: ${AI_PROVIDER}; model: ${getActiveModel()}`);
     }
-  );
+
+    localLanServer = https.createServer({
+      cert: fs.readFileSync(LOCAL_TLS_CERT_FILE),
+      key: fs.readFileSync(LOCAL_TLS_KEY_FILE),
+      minVersion: "TLSv1.2",
+    }, app);
+
+    localLanServer.on("error", (error) => {
+      console.error("[LOCAL LAN] HTTPS listener failed:", error.message);
+    });
+
+    localLanServer.listen(LOCAL_LAN_PORT, LOCAL_LAN_HOST, () => {
+      console.log(`[LOCAL LAN] Secure Android API available on https://${LOCAL_LAN_HOST}:${LOCAL_LAN_PORT}`);
+      console.log("[LOCAL LAN] The Android app must pin the SHA-256 certificate fingerprint printed by scripts/generate_local_tls.py.");
+      console.log("[LOCAL LAN] Keep the Windows firewall limited to your private home network.");
+    });
+  }
 }
 
 startServer().catch((error) => {
@@ -1525,17 +1414,24 @@ startServer().catch((error) => {
   process.exit(1);
 });
 
+async function closeListener(listener) {
+  if (!listener || !listener.listening) return;
+  await new Promise((resolve) => listener.close(resolve));
+}
+
 async function shutdown() {
-  server.close(async () => {
-    try {
-      if (localDatabase) localDatabase.close();
-      if (pool) await pool.end();
-    } catch (error) {
-      console.error("[SERVER] Shutdown error:", error.message);
-    } finally {
-      process.exit(0);
-    }
-  });
+  try {
+    await Promise.all([
+      closeListener(server),
+      closeListener(localLanServer),
+    ]);
+    if (localDatabase) localDatabase.close();
+    if (pool) await pool.end();
+  } catch (error) {
+    console.error("[SERVER] Shutdown error:", error.message);
+  } finally {
+    process.exit(0);
+  }
 }
 
 process.once("SIGINT", shutdown);

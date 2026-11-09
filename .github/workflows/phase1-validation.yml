@@ -51,4 +51,4 @@ jobs:
           python-version: "3.12"
 
       - name: Compile Python source
-        run: python -m compileall -q main.py web_server.py
+        run: python -m compileall -q main.py web_server.py scripts/generate_local_tls.py
