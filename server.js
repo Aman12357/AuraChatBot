@@ -1066,20 +1066,55 @@ app.post(
       return res.status(400).json({ error: "Message is required." });
     }
 
+    const prompt = message.trim();
+    const wantsStream = /text\/event-stream/i.test(req.get("accept") || "");
+
     try {
       const userId = req.user.userId;
       const session = session_id
         ? await getUserSession(session_id, userId)
         : await ensureDefaultSession(userId);
 
-      if (!session) {
-        return res.status(404).json({ error: "Session not found." });
-      }
+      if (!session) return res.status(404).json({ error: "Session not found." });
 
       const activeSessionId = session.session_id;
-      await saveMessage(activeSessionId, userId, "user", message.trim());
+      await saveMessage(activeSessionId, userId, "user", prompt);
 
-      const reply = await generateAIResponse(message.trim(), activeSessionId, userId);
+      if (wantsStream) {
+        res.status(200);
+        res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        res.flushHeaders?.();
+
+        const sendEvent = (event) => {
+          if (!res.destroyed && !res.writableEnded) {
+            res.write("data: " + JSON.stringify(event) + "\n\n");
+          }
+        };
+
+        sendEvent({ type: "status", status: "thinking" });
+        const reply = await generateAIResponse(
+          prompt,
+          activeSessionId,
+          userId,
+          (token) => sendEvent({ type: "token", token })
+        );
+        const emotion = detectEmotion(reply);
+        await saveMessage(activeSessionId, userId, "assistant", reply, emotion);
+        sendEvent({
+          type: "done",
+          response: reply,
+          session_id: activeSessionId,
+          emotion,
+          model: getActiveModel(prompt),
+          thinking_level: getThinkingLevel(prompt),
+        });
+        return res.end();
+      }
+
+      const reply = await generateAIResponse(prompt, activeSessionId, userId);
       const emotion = detectEmotion(reply);
       await saveMessage(activeSessionId, userId, "assistant", reply, emotion);
 
@@ -1088,11 +1123,18 @@ app.post(
         response: reply,
         session_id: activeSessionId,
         emotion,
-        model: getActiveModel(message.trim()),
-        thinking_level: getThinkingLevel(message.trim()),
+        model: getActiveModel(prompt),
+        thinking_level: getThinkingLevel(prompt),
       });
     } catch (error) {
       console.error("[CHAT] Error:", error.message);
+      if (res.headersSent) {
+        if (!res.destroyed && !res.writableEnded) {
+          res.write("data: " + JSON.stringify({ type: "error", error: "AI response generation failed." }) + "\n\n");
+          res.end();
+        }
+        return;
+      }
       return res.status(error.statusCode || 500).json({
         error: error.statusCode ? error.message : "AI response generation failed.",
       });
@@ -1206,36 +1248,18 @@ wss.on("connection", (ws) => {
         await saveMessage(sessionId, userId, "user", text);
         ws.send(JSON.stringify({ type: "status.update", data: { status: "thinking" } }));
 
-        const reply = await generateAIResponse(text, sessionId, userId);
-        const emotion = detectEmotion(reply);
-        const parts = reply.split(/(\s+)/);
-        let chunk = "";
-
-        for (let i = 0; i < parts.length; i++) {
-          chunk += parts[i];
-          if (
-            chunk.length >= 24 ||
-            parts[i].trim().endsWith(".") ||
-            parts[i].trim().endsWith("!") ||
-            parts[i].trim().endsWith("?")
-          ) {
-            if (ws.readyState === 1) {
-              ws.send(JSON.stringify({ type: "chat.stream", data: { token: chunk } }));
-            }
-            chunk = "";
-            await new Promise((resolve) => setTimeout(resolve, 15));
+        const reply = await generateAIResponse(text, sessionId, userId, (token) => {
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: "chat.stream", data: { token } }));
           }
-        }
-
-        if (chunk && ws.readyState === 1) {
-          ws.send(JSON.stringify({ type: "chat.stream", data: { token: chunk } }));
-        }
+        });
+        const emotion = detectEmotion(reply);
 
         await saveMessage(sessionId, userId, "assistant", reply, emotion);
         if (ws.readyState === 1) {
           ws.send(JSON.stringify({
             type: "chat.done",
-            data: { full_response: reply, emotion, session_id: sessionId },
+            data: { full_response: reply, emotion, session_id: sessionId, model: getActiveModel(text), thinking_level: getThinkingLevel(text) },
           }));
           ws.send(JSON.stringify({ type: "status.update", data: { status: "ready" } }));
         }
