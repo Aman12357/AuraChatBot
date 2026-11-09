@@ -77,6 +77,12 @@ All these runtime files are ignored by Git. Keep a separate backup of the local 
    ```
    Expected values include `database: "connected"`, `database_mode: "sqlite"`, and `ai_provider: "gemini"`. `ai_provider_configured` should be `true` when the key is valid and loaded.
 
+## Main PC hologram companion
+
+The updated hologram chat is included in the main Next.js PC application at `http://localhost:3000/aleena-companion.html`. Open it from the **Hologram** tab in the signed-in dashboard. It shares the main app's `aleena_auth_token` in the same browser origin, verifies that token with the local Node API, and reuses the existing Aleena account instead of requiring a second login. If you open the page before signing in, use **Connect** to sign in with the same PC-local Aleena account. The page saves its active chat session ID in browser storage so it can continue that companion chat after a page reload. The **Main PC AI** link returns to the original dashboard; the existing chat, memory, settings and Python voice bridge remain available there.
+
+The HTML file is served by Next.js from `web/public/aleena-companion.html`; do not open it directly as a `file://` URL. Use `http://localhost:3000` so browser requests match the backend's allowed frontend origin.
+
 ## Faster replies
 
 All default web, Android and Node-backend requests use the stable `gemini-3.8-flash` model. Routine chat uses `thinking_level=low` for faster replies; substantial coding, debugging, architecture, proof or analysis tasks use `thinking_level=medium` for additional reasoning. Gemini 3.8 Flash does not support `minimal`, so old saved `minimal` settings are normalized to `low` at startup.
