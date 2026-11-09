@@ -517,11 +517,13 @@ async function getHistory(sessionId, userId, limit = 100) {
        FROM chat_messages m
        INNER JOIN chat_sessions s ON s.session_id = m.session_id
        WHERE m.session_id = $1 AND s.user_id = $2
-       ORDER BY m.id ASC
+       ORDER BY m.id DESC
        LIMIT $3`,
       [sessionId, userId, limit]
     );
-    return result.rows;
+    // The database returns newest first for a fast bounded query; the model
+    // expects chronological conversation order.
+    return result.rows.reverse();
   }
 
   return inMemoryStore.messages[sessionId] || [];
