@@ -374,7 +374,7 @@ export default function AppShell() {
             <div className="space-y-3">
               <div className="p-3.5 bg-white/[0.04] rounded-xl border border-white/[0.06]">
                 <div className="text-xs font-semibold text-gray-300">Model Name</div>
-                <div className="text-sm font-bold text-accent2">Aleena AI Master 3.0</div>
+                <div className="text-sm font-bold text-accent2">Gemini 3.8 Flash</div>
               </div>
 
               <div className="p-3.5 bg-white/[0.04] rounded-xl border border-white/[0.06]">
