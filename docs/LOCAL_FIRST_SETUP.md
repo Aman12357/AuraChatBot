@@ -30,7 +30,7 @@ All these runtime files are ignored by Git. Keep a separate backup of the local 
 ## Windows setup
 
 1. Install Node.js 18.3 or newer and Python 3.12.
-2. Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey). The example uses `gemini-3.6-flash`; confirm that this model is available in your AI Studio project. Never paste the key into GitHub or a public chat.
+2. Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey). The example uses the stable `gemini-3.8-flash` model; confirm access in your AI Studio project. Never paste the key into GitHub or a public chat.
 3. In the repository root, create `.env` only if it does not already exist:
    ```cmd
    if not exist .env copy .env.example .env
@@ -44,10 +44,10 @@ All these runtime files are ignored by Git. Keep a separate backup of the local 
    DATABASE_URL=
    AI_PROVIDER=gemini
    GEMINI_API_KEY=your_private_key
-   GEMINI_MODEL=gemini-3.5-flash-lite
-GEMINI_REASONING_MODEL=gemini-3.6-flash
-GEMINI_THINKING_LEVEL=minimal
-GEMINI_COMPLEX_THINKING_LEVEL=low
+   GEMINI_MODEL=gemini-3.8-flash
+   GEMINI_REASONING_MODEL=gemini-3.8-flash
+   GEMINI_THINKING_LEVEL=low
+   GEMINI_COMPLEX_THINKING_LEVEL=medium
    HOST=127.0.0.1
    ```
    Generate a private JWT secret with:
@@ -79,7 +79,7 @@ GEMINI_COMPLEX_THINKING_LEVEL=low
 
 ## Faster replies
 
-The default response model is `gemini-3.5-flash-lite` with `thinking_level=minimal` for routine chat. Prompts that look like substantial coding, debugging, architecture, proof or analysis tasks are routed to `gemini-3.6-flash` with `thinking_level=low`. This keeps everyday answers quick while retaining a stronger model for demanding work.
+All default web, Android and Node-backend requests use the stable `gemini-3.8-flash` model. Routine chat uses `thinking_level=low` for faster replies; substantial coding, debugging, architecture, proof or analysis tasks use `thinking_level=medium` for additional reasoning. Gemini 3.8 Flash does not support `minimal`, so old saved `minimal` settings are normalized to `low` at startup.
 
 The Node API streams real Gemini output chunks to the web WebSocket and Android HTTPS/SSE client. The client can start showing text before the model finishes the full response. The API also uses the newest 12 messages for model context rather than loading the earliest messages from long conversations.
 
@@ -87,7 +87,7 @@ To check the model currently selected by the PC, run:
 ```cmd
 curl http://127.0.0.1:8765/api/health
 ```
-Read the `model`, `reasoning_model`, and `thinking_level` fields. Each chat response also reports the actual model used for that request. The previous documented default `GEMINI_MODEL=gemini-3.6-flash` is automatically migrated to Flash-Lite at startup; an explicitly configured model other than that old default is preserved.
+Read the `model`, `reasoning_model`, and `thinking_level` fields. Each chat response also reports the actual model used for that request. Previous Aleena defaults (`gemini-3.5-flash-lite` and `gemini-3.6-flash`) are automatically upgraded to `gemini-3.8-flash`; deliberately configured custom model IDs are preserved. The desktop assistant also upgrades its prior saved model defaults to 3.8.
 
 ## Costs, quotas and privacy
 
