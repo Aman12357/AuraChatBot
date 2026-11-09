@@ -9,12 +9,14 @@ import {
   Volume2,
   VolumeX,
   Maximize,
+  Sparkles,
 } from 'lucide-react';
 
 const navItems = [
   { icon: MessageSquare, label: 'Chat' },
   { icon: Brain, label: 'Memory' },
   { icon: ListTodo, label: 'Tasks' },
+  { icon: Sparkles, label: 'Hologram' },
   { icon: Settings, label: 'Settings' },
 ];
 
@@ -38,6 +40,10 @@ export default function Navbar({ activeTab = 'Chat', setActiveTab, onOpenSetting
   };
 
   const handleTabClick = (label: string) => {
+    if (label === 'Hologram') {
+      window.location.assign('/aleena-companion.html');
+      return;
+    }
     if (setActiveTab) setActiveTab(label);
     if (label === 'Settings' && onOpenSettings) {
       onOpenSettings();
