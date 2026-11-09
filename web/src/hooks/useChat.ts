@@ -28,6 +28,8 @@ interface ApiChatResponse {
   content?: string;
   emotion?: string;
   session_id?: string;
+  model?: string;
+  thinking_level?: string;
   error?: string;
 }
 
@@ -207,6 +209,8 @@ export function useChat(token: string | null = null) {
                 Date.now(),
               emotion:
                 data.emotion,
+              model: data.model,
+              thinkingLevel: data.thinking_level,
             };
 
           setMessages(
@@ -598,6 +602,8 @@ export function useChat(token: string | null = null) {
 
               emotion:
                 data.emotion,
+              model: data.model,
+              thinkingLevel: data.thinking_level,
             };
 
           setMessages(
