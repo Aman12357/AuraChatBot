@@ -143,10 +143,10 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
       }),
     });
     assert.equal(streamingResponse.status, 200);
-    assert.match(streamingResponse.headers.get("content-type"), /text\\/event-stream/);
+    assert.ok((streamingResponse.headers.get("content-type") || "").includes("text/event-stream"));
     const streamedBody = await streamingResponse.text();
     const streamEvents = streamedBody
-      .split(/\\r?\\n/)
+      .split("\n")
       .filter((line) => line.startsWith("data:"))
       .map((line) => JSON.parse(line.slice(5).trim()));
 
