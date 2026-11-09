@@ -23,7 +23,9 @@ import java.util.concurrent.TimeUnit
 data class ChatReply(
     val response: String,
     val sessionId: String,
-    val emotion: String?
+    val emotion: String?,
+    val model: String,
+    val thinkingLevel: String
 )
 
 /**
@@ -175,7 +177,7 @@ object AleenaApi {
                         require(root.optBoolean("ai_provider_configured", false)) {
                             "Gemini is selected on the PC, but its API key is missing or the client could not initialize. Check GEMINI_API_KEY in the PC .env file."
                         }
-                        "Secure PC connection verified. Chat storage: PC SQLite. AI: Gemini is configured."
+                        "Secure PC connection verified. Storage: PC SQLite. Fast model: ${root.optString("model")}. Complex-task model: ${root.optString("reasoning_model")}. Thinking: ${root.optString("thinking_level")}."
                     }.fold({ done(Result.success(it)) }, { done(Result.failure(it)) })
                 }
             }
@@ -229,6 +231,7 @@ object AleenaApi {
         token: String,
         text: String,
         sessionId: String? = null,
+        onPartial: (String) -> Unit = {},
         done: (Result<ChatReply>) -> Unit
     ) {
         val config = runCatching { connection(context) }
@@ -243,6 +246,7 @@ object AleenaApi {
             .url("${connection.baseUrl}/api/chat")
             .header("Authorization", "Bearer $token")
             .header("X-Aleena-Pairing-Key", connection.pairingKey)
+            .header("Accept", "text/event-stream")
             .post(bodyJson.toString().toRequestBody(type))
             .build()
 
@@ -253,24 +257,56 @@ object AleenaApi {
 
             override fun onResponse(call: Call, response: Response) {
                 response.use { r ->
-                    val raw = r.body?.string().orEmpty()
                     if (!r.isSuccessful) {
+                        val raw = r.body?.string().orEmpty()
                         val message = when (r.code) {
                             401 -> "Your local Aleena session expired. Please sign in again."
                             404 -> "The saved chat session was not found. Sign in again to start a fresh session."
-                            else -> "Aleena PC request failed (HTTP ${r.code})."
+                            else -> "Aleena PC request failed (HTTP ${r.code}). ${raw.take(300)}"
                         }
                         done(Result.failure(IllegalStateException(message)))
                         return
                     }
+
                     runCatching {
-                        val root = JSONObject(raw)
-                        ChatReply(
-                            response = root.getString("response"),
-                            sessionId = root.optString("session_id", sessionId.orEmpty()),
-                            emotion = root.optString("emotion").takeIf { it.isNotBlank() }
+                        val source = requireNotNull(r.body) { "The PC returned an empty streaming response." }.source()
+                        var finalReply: ChatReply? = null
+                        var streamError: String? = null
+                        val accumulated = StringBuilder()
+
+                        while (!source.exhausted()) {
+                            val line = source.readUtf8Line() ?: break
+                            if (!line.startsWith("data:")) continue
+
+                            val payload = JSONObject(line.removePrefix("data:").trim())
+                            when (payload.optString("type")) {
+                                "token" -> {
+                                    val tokenPart = payload.optString("token")
+                                    if (tokenPart.isNotEmpty()) {
+                                        accumulated.append(tokenPart)
+                                        onPartial(accumulated.toString())
+                                    }
+                                }
+                                "done" -> {
+                                    finalReply = ChatReply(
+                                        response = payload.optString("response", accumulated.toString()),
+                                        sessionId = payload.optString("session_id", sessionId.orEmpty()),
+                                        emotion = payload.optString("emotion").takeIf { it.isNotBlank() },
+                                        model = payload.optString("model"),
+                                        thinkingLevel = payload.optString("thinking_level")
+                                    )
+                                }
+                                "error" -> streamError = payload.optString("error", "The PC could not finish the response.")
+                            }
+                        }
+
+                        finalReply ?: throw IllegalStateException(
+                            streamError ?: "The PC stream ended before the response was complete."
                         )
-                    }.fold({ done(Result.success(it)) }, { done(Result.failure(it)) })
+                    }.fold(
+                        { reply -> done(Result.success(reply)) },
+                        { error -> done(Result.failure(error)) }
+                    )
                 }
             }
         })
