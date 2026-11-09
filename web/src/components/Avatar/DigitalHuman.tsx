@@ -38,6 +38,10 @@ export function DigitalHuman() {
         // Optimize VRM: rotate Y by 180 degrees because VRM models look towards +Z by default
         vrm.scene.rotation.y = Math.PI;
         
+        // Enlarge the companion model for the main holographic workspace.
+        // Keep the root position controlled by useNavigation; scale only the model geometry.
+        vrm.scene.scale.setScalar(2.6);
+
         // Setup materials and render settings
         vrm.scene.traverse((obj: any) => {
           if (obj.isMesh) {

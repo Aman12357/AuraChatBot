@@ -278,9 +278,9 @@ export default function AvatarStage({
   };
 
   return (
-    <div className="flex-1 flex flex-col relative">
+    <div className="absolute inset-0 flex flex-col">
       {/* Three.js Canvas */}
-      <div className="flex-1 min-h-0 relative">
+      <div className="absolute inset-0">
         <Canvas
           camera={{ position: [0, 1.2, 2.5], fov: 50 }}
           shadows
@@ -337,30 +337,6 @@ export default function AvatarStage({
               {isSpeaking ? 'Speaking...' : isListening ? 'Listening...' : isThinking ? 'Thinking...' : 'Idle'}
             </span>
           </div>
-        </div>
-      </div>
-
-      {/* Floating Glassmorphic Status Bar */}
-      <div className="absolute bottom-5 left-1/2 -translate-x-1/2 backdrop-blur-xl bg-white/[0.03] border border-white/[0.08] px-6 py-3 rounded-2xl flex items-center gap-4 shadow-[0_10px_30px_rgba(0,0,0,0.5)] z-10 pointer-events-none">
-        <div className="flex items-center gap-2.5">
-          <span
-            className={`w-2.5 h-2.5 rounded-full shadow-lg ${
-              isSpeaking
-                ? 'bg-neon-green shadow-[0_0_8px_#00ffaa] animate-pulse'
-                : isListening
-                ? 'bg-neon-blue shadow-[0_0_8px_#00f2ff] animate-pulse'
-                : isThinking
-                ? 'bg-neon-amber shadow-[0_0_8px_#ffae00] animate-pulse'
-                : 'bg-white/40'
-            }`}
-          />
-          <span className="text-xs font-semibold tracking-wide uppercase text-text-main">
-            {status || 'Idle'}
-          </span>
-        </div>
-        <div className="h-4 w-[1px] bg-white/10" />
-        <div className="text-[11px] font-medium text-text-dim capitalize bg-white/[0.04] px-2 py-0.5 rounded-md border border-white/[0.05]">
-          {emotion || 'neutral'}
         </div>
       </div>
 
