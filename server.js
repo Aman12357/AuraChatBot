@@ -641,9 +641,9 @@ async function generateAIResponse(message, sessionId, userId, onToken = null) {
   let fallback;
   if (lower.includes("who are you") || lower.includes("your name") || lower.includes("name aleena")) {
     fallback = "I am Aleena AI, your intelligent digital companion.";
-  } else if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey")) {
+  } else if (/\\b(hello|hi|hey)\\b/i.test(lower)) {
     fallback = "Hello! I am Aleena. How can I help you today?";
-  } else if (lower.includes("code") || lower.includes("program")) {
+  } else if (/\\b(code|program|debug|programming)\\b/i.test(lower)) {
     fallback = "I can help you with coding, debugging, explanations, algorithms and software projects.";
   } else {
     fallback = "I received your message, but the AI service is currently unavailable. Please check the Gemini API configuration.";
