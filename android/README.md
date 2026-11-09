@@ -19,7 +19,7 @@ Native Android companion for AuraChatBot. Android source remains a separate Grad
 
 - Login and chat use certificate-pinned HTTPS. The app trusts only the exact self-signed certificate whose fingerprint was copied from the PC, and the server also requires the separately generated local pairing key in every API request.
 - The PC API validates that it is running `DATABASE_MODE=sqlite` and `AI_PROVIDER=gemini` before the app reports a successful pairing.
-- Chat uses server-sent events so typed replies appear incrementally. Everyday prompts use Gemini 3.5 Flash-Lite with minimal thinking; substantial coding/analysis prompts use Gemini 3.6 Flash with low thinking. The completed reply displays the model used.
+- Chat uses server-sent events so typed replies appear incrementally. All default requests use Gemini 3.8 Flash. Everyday prompts use low thinking for speed; substantial coding/analysis prompts use medium thinking for additional reasoning. The completed reply displays the model used.
 - The client keeps its token, PC address, certificate pin and returned `session_id` in Android encrypted app-private preferences.
 - The phone and PC must remain on the same trusted Wi-Fi network. The PC must be powered on and the LAN listener enabled.
 - Android sends prompt text to the PC over the local network; the PC forwards the prompt and relevant chat history to Gemini for inference. The response and saved chat records stay in the PC's local SQLite database.
