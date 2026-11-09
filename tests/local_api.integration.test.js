@@ -68,6 +68,9 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
       AI_PROVIDER: "gemini",
       GEMINI_API_KEY: "",
       GEMINI_MODEL: "test-gemini-model",
+      GEMINI_REASONING_MODEL: "test-reasoning-model",
+      GEMINI_THINKING_LEVEL: "minimal",
+      GEMINI_COMPLEX_THINKING_LEVEL: "low",
     };
 
     appProcess = spawn(
@@ -87,6 +90,8 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
     assert.equal(health.ai_provider, "gemini");
     assert.equal(health.ai_provider_configured, false);
     assert.equal(health.model, "test-gemini-model");
+    assert.equal(health.reasoning_model, "test-reasoning-model");
+    assert.equal(health.thinking_level, "minimal");
 
     const registerResponse = await fetch(baseUrl + "/api/auth/register", {
       method: "POST",
@@ -122,7 +127,51 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
 
     assert.equal(chat.response, "Hello! I am Aleena. How can I help you today?");
     assert.equal(chat.model, "test-gemini-model");
+    assert.equal(chat.thinking_level, "minimal");
     assert.ok(chat.session_id);
+
+    const streamingResponse = await fetch(baseUrl + "/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        Authorization: "Bearer " + registration.token,
+      },
+      body: JSON.stringify({
+        message: "Hello from streaming chat",
+        session_id: chat.session_id,
+      }),
+    });
+    assert.equal(streamingResponse.status, 200);
+    assert.match(streamingResponse.headers.get("content-type"), /text\\/event-stream/);
+    const streamedBody = await streamingResponse.text();
+    const streamEvents = streamedBody
+      .split(/\\r?\\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => JSON.parse(line.slice(5).trim()));
+
+    assert.ok(streamEvents.some((event) => event.type === "token"));
+    const streamDone = streamEvents.find((event) => event.type === "done");
+    assert.ok(streamDone);
+    assert.equal(streamDone.response, "Hello! I am Aleena. How can I help you today?");
+    assert.equal(streamDone.model, "test-gemini-model");
+    assert.equal(streamDone.thinking_level, "minimal");
+
+    const complexResponse = await fetch(baseUrl + "/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + registration.token,
+      },
+      body: JSON.stringify({
+        message: "Please debug this Java code and explain the fix",
+        session_id: chat.session_id,
+      }),
+    });
+    assert.equal(complexResponse.status, 200);
+    const complexChat = await complexResponse.json();
+    assert.equal(complexChat.model, "test-reasoning-model");
+    assert.equal(complexChat.thinking_level, "low");
 
     appProcess.kill("SIGTERM");
     await Promise.race([once(appProcess, "exit"), delay(5000)]);
@@ -139,9 +188,13 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
     ).rows;
 
     assert.equal(userRows.length, 1);
-    assert.equal(messageRows.length, 2);
+    assert.equal(messageRows.length, 6);
     assert.equal(messageRows[0].content, "Hello Aleena");
     assert.equal(messageRows[1].content, "Hello! I am Aleena. How can I help you today?");
+    assert.equal(messageRows[2].content, "Hello from streaming chat");
+    assert.equal(messageRows[3].content, "Hello! I am Aleena. How can I help you today?");
+    assert.equal(messageRows[4].content, "Please debug this Java code and explain the fix");
+    assert.equal(messageRows[5].content, "I can help you with coding, debugging, explanations, algorithms and software projects.");
     assert.equal(database.integrityCheck(), "ok");
   } finally {
     if (appProcess && appProcess.exitCode === null) {
