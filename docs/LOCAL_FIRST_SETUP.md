@@ -87,7 +87,7 @@ To check the model currently selected by the PC, run:
 ```cmd
 curl http://127.0.0.1:8765/api/health
 ```
-Read the `model`, `reasoning_model`, and `thinking_level` fields. Each chat response also reports the actual model used for that request. A local `.env` value overrides the code default, so update `GEMINI_MODEL` there if it still says `gemini-3.6-flash`.
+Read the `model`, `reasoning_model`, and `thinking_level` fields. Each chat response also reports the actual model used for that request. The previous documented default `GEMINI_MODEL=gemini-3.6-flash` is automatically migrated to Flash-Lite at startup; an explicitly configured model other than that old default is preserved.
 
 ## Costs, quotas and privacy
 
