@@ -59,16 +59,26 @@ const ALEENA_DATA_DIR = path.resolve(
 const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY;
 
-// Migrate the previous documented 3.6 default to the faster Flash-Lite path.
-const configuredFastModel = (process.env.GEMINI_MODEL || "").trim();
-const GEMINI_MODEL =
-  !configuredFastModel || configuredFastModel === "gemini-3.6-flash"
-    ? "gemini-3.5-flash-lite"
-    : configuredFastModel;
-// Complex prompts still get the previous 3.6 Flash model.
-const GEMINI_REASONING_MODEL = process.env.GEMINI_REASONING_MODEL || "gemini-3.6-flash";
-const GEMINI_THINKING_LEVEL = (process.env.GEMINI_THINKING_LEVEL || "minimal").toLowerCase();
-const GEMINI_COMPLEX_THINKING_LEVEL = (process.env.GEMINI_COMPLEX_THINKING_LEVEL || "low").toLowerCase();
+// Gemini 3.8 Flash is the single default model for routine and complex requests.
+// Upgrade the prior Aleena defaults automatically, while preserving deliberate custom IDs.
+const LEGACY_GEMINI_DEFAULTS = new Set(["gemini-3.5-flash-lite", "gemini-3.6-flash"]);
+function resolveGeminiModel(value) {
+  const configured = (value || "").trim();
+  return !configured || LEGACY_GEMINI_DEFAULTS.has(configured)
+    ? "gemini-3.8-flash"
+    : configured;
+}
+const GEMINI_MODEL = resolveGeminiModel(process.env.GEMINI_MODEL);
+const GEMINI_REASONING_MODEL = resolveGeminiModel(process.env.GEMINI_REASONING_MODEL);
+
+// Gemini 3.8 Flash supports low/medium/high; the old `minimal` setting is not valid.
+function normalizeThinkingLevel(value, fallback) {
+  const configured = (value || fallback).trim().toLowerCase();
+  if (configured === "minimal") return "low";
+  return ["low", "medium", "high"].includes(configured) ? configured : fallback;
+}
+const GEMINI_THINKING_LEVEL = normalizeThinkingLevel(process.env.GEMINI_THINKING_LEVEL, "low");
+const GEMINI_COMPLEX_THINKING_LEVEL = normalizeThinkingLevel(process.env.GEMINI_COMPLEX_THINKING_LEVEL, "medium");
 const AI_PROVIDER = (process.env.AI_PROVIDER || "gemini").toLowerCase();
 if (AI_PROVIDER !== "gemini") {
   throw new Error("Unsupported AI_PROVIDER. Aleena is configured to use Gemini only.");
