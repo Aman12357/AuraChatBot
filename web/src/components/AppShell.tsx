@@ -12,20 +12,14 @@ import { useAvatar } from '@/hooks/useAvatar';
 import { voicePlayer } from '@/utils/voicePlayer';
 import { avatarController } from './Avatar/controllers/AvatarController';
 
-// Dynamic import for AvatarStage commented out
-/*
 const AvatarStage = dynamic(() => import('./Avatar/AvatarStage'), {
   ssr: false,
   loading: () => (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-16 h-16 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
-        <span className="text-xs text-text-dim">Loading Avatar...</span>
-      </div>
+    <div className="flex-1 flex items-center justify-center text-sm text-white/60">
+      Preparing Aleena's holographic avatar…
     </div>
   ),
 });
-*/
 
 export default function AppShell() {
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -300,32 +294,66 @@ export default function AppShell() {
         onLogout={handleLogout}
       />
 
-      {/* Main content area */}
-      <div className="flex-1 flex min-h-0">
-        {/* Left: Session sidebar */}
-        <SessionSidebar
-          sessions={sessions}
-          currentSessionId={currentSessionId}
-          onSwitchSession={switchSession}
-          onCreateSession={createSession}
-          isCollapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        />
+      {/* Main holographic workspace: avatar and conversation stay on the home screen. */}
+      <main className="flex-1 min-h-0 flex gap-3 p-3 max-md:gap-2 max-md:p-2">
+        <div className="hidden md:flex min-h-0">
+          <SessionSidebar
+            sessions={sessions}
+            currentSessionId={currentSessionId}
+            onSwitchSession={switchSession}
+            onCreateSession={createSession}
+            isCollapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          />
+        </div>
 
-        {/* Right: Chat panel */}
-        <ChatPanel
-          messages={messages}
-          streamingText={streamingText}
-          isStreaming={isStreaming}
-        />
-      </div>
+        <div className="flex-1 min-w-0 min-h-0 grid grid-cols-1 grid-rows-[minmax(230px,42vh)_minmax(250px,1fr)] xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] xl:grid-rows-1 gap-3 max-md:gap-2">
+          <section className="relative min-h-0 min-w-0 flex flex-col overflow-hidden rounded-[26px] border border-cyan-200/15 bg-[#0b1020] shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_78%,rgba(45,212,191,0.17),transparent_48%),radial-gradient(ellipse_at_78%_18%,rgba(129,140,248,0.17),transparent_42%),linear-gradient(145deg,rgba(255,255,255,0.04),transparent_50%)]" />
+            <div className="relative z-20 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-white/[0.07] px-5 max-sm:px-3">
+              <div className="min-w-0">
+                <div className="font-semibold tracking-wide text-white">Aleena</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-cyan-100/50">Holographic AI companion</div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="hidden rounded-full border border-cyan-200/20 bg-cyan-200/[0.06] px-3 py-1 text-[10px] font-medium text-cyan-100/80 sm:inline-flex">Gemini 3.8 Flash</span>
+                <span className="flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[10px] text-white/65">
+                  <span className={`h-2 w-2 rounded-full ${isSpeaking ? 'bg-emerald-300 shadow-[0_0_10px_#6ee7b7]' : isListening ? 'bg-cyan-300 shadow-[0_0_10px_#67e8f9] animate-pulse' : isThinking ? 'bg-amber-300 animate-pulse' : 'bg-white/35'}`} />
+                  {isSpeaking ? 'Speaking' : isListening ? 'Listening' : isThinking ? 'Thinking' : 'Ready'}
+                </span>
+              </div>
+            </div>
+            <div className="relative z-10 flex-1 min-h-0">
+              <div className="pointer-events-none absolute left-1/2 top-[54%] h-[72%] w-[68%] -translate-x-1/2 -translate-y-1/2 rounded-[50%] border border-cyan-200/10 shadow-[0_0_65px_rgba(45,212,191,0.10),inset_0_0_55px_rgba(129,140,248,0.08)]" />
+              <div className="pointer-events-none absolute left-1/2 top-[54%] h-[62%] w-[58%] -translate-x-1/2 -translate-y-1/2 rounded-[50%] border border-fuchsia-200/10" />
+              <AvatarStage
+                emotion={emotion}
+                mouthOpen={mouthOpen}
+                isSpeaking={isSpeaking}
+                isListening={isListening}
+                isThinking={isThinking}
+                status={status}
+              />
+            </div>
+            <div className="relative z-20 flex h-9 shrink-0 items-center justify-center border-t border-white/[0.06] bg-black/10 text-[10px] tracking-[0.18em] text-cyan-100/40">
+              DRAG TO LOOK AROUND · LIVE AVATAR RESPONSE
+            </div>
+          </section>
 
-      {/* Bottom input bar */}
-      <InputBar
-        onSend={handleSend}
-        isListening={isListening}
-        onMicToggle={handleMicToggle}
-      />
+          <section className="min-h-0 min-w-0 flex flex-col overflow-hidden rounded-[26px] border border-white/[0.09] bg-[#0a0d18]/90 shadow-[0_18px_60px_rgba(0,0,0,0.3)]">
+            <ChatPanel
+              messages={messages}
+              streamingText={streamingText}
+              isStreaming={isStreaming}
+            />
+            <InputBar
+              onSend={handleSend}
+              isListening={isListening}
+              onMicToggle={handleMicToggle}
+            />
+          </section>
+        </div>
+      </main>
 
       {/* ⚙️ Aleena Settings Modal */}
       {showSettingsModal && (
@@ -346,7 +374,7 @@ export default function AppShell() {
             <div className="space-y-3">
               <div className="p-3.5 bg-white/[0.04] rounded-xl border border-white/[0.06]">
                 <div className="text-xs font-semibold text-gray-300">Model Name</div>
-                <div className="text-sm font-bold text-accent2">Aleena AI Master 3.0</div>
+                <div className="text-sm font-bold text-accent2">Gemini 3.8 Flash</div>
               </div>
 
               <div className="p-3.5 bg-white/[0.04] rounded-xl border border-white/[0.06]">
