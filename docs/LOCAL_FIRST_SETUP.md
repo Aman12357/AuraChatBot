@@ -44,7 +44,10 @@ All these runtime files are ignored by Git. Keep a separate backup of the local 
    DATABASE_URL=
    AI_PROVIDER=gemini
    GEMINI_API_KEY=your_private_key
-   GEMINI_MODEL=gemini-3.6-flash
+   GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_REASONING_MODEL=gemini-3.6-flash
+GEMINI_THINKING_LEVEL=minimal
+GEMINI_COMPLEX_THINKING_LEVEL=low
    HOST=127.0.0.1
    ```
    Generate a private JWT secret with:
@@ -73,6 +76,18 @@ All these runtime files are ignored by Git. Keep a separate backup of the local 
    curl http://127.0.0.1:8765/api/health
    ```
    Expected values include `database: "connected"`, `database_mode: "sqlite"`, and `ai_provider: "gemini"`. `ai_provider_configured` should be `true` when the key is valid and loaded.
+
+## Faster replies
+
+The default response model is `gemini-3.5-flash-lite` with `thinking_level=minimal` for routine chat. Prompts that look like substantial coding, debugging, architecture, proof or analysis tasks are routed to `gemini-3.6-flash` with `thinking_level=low`. This keeps everyday answers quick while retaining a stronger model for demanding work.
+
+The Node API streams real Gemini output chunks to the web WebSocket and Android HTTPS/SSE client. The client can start showing text before the model finishes the full response. The API also uses the newest 12 messages for model context rather than loading the earliest messages from long conversations.
+
+To check the model currently selected by the PC, run:
+```cmd
+curl http://127.0.0.1:8765/api/health
+```
+Read the `model`, `reasoning_model`, and `thinking_level` fields. Each chat response also reports the actual model used for that request. A local `.env` value overrides the code default, so update `GEMINI_MODEL` there if it still says `gemini-3.6-flash`.
 
 ## Costs, quotas and privacy
 
