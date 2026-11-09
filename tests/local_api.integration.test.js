@@ -69,8 +69,8 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
       GEMINI_API_KEY: "",
       GEMINI_MODEL: "test-gemini-model",
       GEMINI_REASONING_MODEL: "test-reasoning-model",
-      GEMINI_THINKING_LEVEL: "minimal",
-      GEMINI_COMPLEX_THINKING_LEVEL: "low",
+      GEMINI_THINKING_LEVEL: "low",
+      GEMINI_COMPLEX_THINKING_LEVEL: "medium",
     };
 
     appProcess = spawn(
@@ -91,7 +91,7 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
     assert.equal(health.ai_provider_configured, false);
     assert.equal(health.model, "test-gemini-model");
     assert.equal(health.reasoning_model, "test-reasoning-model");
-    assert.equal(health.thinking_level, "minimal");
+    assert.equal(health.thinking_level, "low");
 
     const registerResponse = await fetch(baseUrl + "/api/auth/register", {
       method: "POST",
@@ -127,7 +127,7 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
 
     assert.equal(chat.response, "Hello! I am Aleena. How can I help you today?");
     assert.equal(chat.model, "test-gemini-model");
-    assert.equal(chat.thinking_level, "minimal");
+    assert.equal(chat.thinking_level, "low");
     assert.ok(chat.session_id);
 
     const streamingResponse = await fetch(baseUrl + "/api/chat", {
@@ -155,7 +155,7 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
     assert.ok(streamDone);
     assert.equal(streamDone.response, "Hello! I am Aleena. How can I help you today?");
     assert.equal(streamDone.model, "test-gemini-model");
-    assert.equal(streamDone.thinking_level, "minimal");
+    assert.equal(streamDone.thinking_level, "low");
 
     const complexResponse = await fetch(baseUrl + "/api/chat", {
       method: "POST",
@@ -171,7 +171,7 @@ test("local API stores data in SQLite and selects Gemini without cloud fallbacks
     assert.equal(complexResponse.status, 200);
     const complexChat = await complexResponse.json();
     assert.equal(complexChat.model, "test-reasoning-model");
-    assert.equal(complexChat.thinking_level, "low");
+    assert.equal(complexChat.thinking_level, "medium");
 
     appProcess.kill("SIGTERM");
     await Promise.race([once(appProcess, "exit"), delay(5000)]);
