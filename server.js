@@ -59,8 +59,13 @@ const ALEENA_DATA_DIR = path.resolve(
 const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY;
 
-// Fast everyday chat uses Flash-Lite; demanding coding/analysis prompts use Flash.
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+// Migrate the previous documented 3.6 default to the faster Flash-Lite path.
+const configuredFastModel = (process.env.GEMINI_MODEL || "").trim();
+const GEMINI_MODEL =
+  !configuredFastModel || configuredFastModel === "gemini-3.6-flash"
+    ? "gemini-3.5-flash-lite"
+    : configuredFastModel;
+// Complex prompts still get the previous 3.6 Flash model.
 const GEMINI_REASONING_MODEL = process.env.GEMINI_REASONING_MODEL || "gemini-3.6-flash";
 const GEMINI_THINKING_LEVEL = (process.env.GEMINI_THINKING_LEVEL || "minimal").toLowerCase();
 const GEMINI_COMPLEX_THINKING_LEVEL = (process.env.GEMINI_COMPLEX_THINKING_LEVEL || "low").toLowerCase();
