@@ -59,15 +59,28 @@ const ALEENA_DATA_DIR = path.resolve(
 const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY;
 
-const GEMINI_MODEL =
-  process.env.GEMINI_MODEL || "gemini-3.6-flash";
+// Fast everyday chat uses Flash-Lite; demanding coding/analysis prompts use Flash.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+const GEMINI_REASONING_MODEL = process.env.GEMINI_REASONING_MODEL || "gemini-3.6-flash";
+const GEMINI_THINKING_LEVEL = (process.env.GEMINI_THINKING_LEVEL || "minimal").toLowerCase();
+const GEMINI_COMPLEX_THINKING_LEVEL = (process.env.GEMINI_COMPLEX_THINKING_LEVEL || "low").toLowerCase();
 const AI_PROVIDER = (process.env.AI_PROVIDER || "gemini").toLowerCase();
 if (AI_PROVIDER !== "gemini") {
   throw new Error("Unsupported AI_PROVIDER. Aleena is configured to use Gemini only.");
 }
 
-function getActiveModel() {
-  return GEMINI_MODEL;
+const COMPLEX_PROMPT_PATTERN = /\b(debug|debugging|refactor|architecture|architect|implement|write code|generate code|build (?:an?|the) app|algorithm|prove|proof|derive|analy[sz]e|review|optimi[sz]e|compare|step[- ]by[- ]step|multi[- ]step|technical design|system design|production[- ]ready)\b/i;
+
+function isComplexPrompt(message = "") {
+  return message.length >= 900 || COMPLEX_PROMPT_PATTERN.test(message);
+}
+
+function getActiveModel(message = "") {
+  return isComplexPrompt(message) ? GEMINI_REASONING_MODEL : GEMINI_MODEL;
+}
+
+function getThinkingLevel(message = "") {
+  return isComplexPrompt(message) ? GEMINI_COMPLEX_THINKING_LEVEL : GEMINI_THINKING_LEVEL;
 }
 
 const JWT_SECRET =
@@ -572,131 +585,65 @@ function buildGeminiContents(history) {
    GEMINI RESPONSE
    ========================================================= */
 
-async function generateAIResponse(
-  message,
-  sessionId,
-  userId
-) {
-  /*
-   1. Gemini
-  */
+async function generateAIResponse(message, sessionId, userId, onToken = null) {
+  const startedAt = Date.now();
+  const selectedModel = getActiveModel(message);
+  const thinkingLevel = getThinkingLevel(message);
+  let partialText = "";
 
   if (genAI) {
     try {
-      const history =
-        await getHistory(
-          sessionId,
-          userId,
-          20
-        );
-
-      /*
-       User message was already saved
-       before this function is called,
-       so remove the last user message.
-      */
-
-      const previousHistory =
-        history.length > 0
-          ? history.slice(0, -1)
-          : [];
-
-      const contents =
-        buildGeminiContents(
-          previousHistory
-        );
-
+      // Keep only the latest six user/assistant turns to reduce prompt processing.
+      const history = await getHistory(sessionId, userId, 12);
+      const previousHistory = history.length > 0 ? history.slice(0, -1) : [];
+      const contents = buildGeminiContents(previousHistory);
       const request = {
-        model: getActiveModel(),
-        contents: [
-          ...contents,
-          {
-            role: "user",
-            parts: [
-              {
-                text: message,
-              },
-            ],
-          },
-        ],
+        model: selectedModel,
+        contents: [...contents, { role: "user", parts: [{ text: message }] }],
         config: {
-          systemInstruction:
-            SYSTEM_PROMPT,
+          systemInstruction: SYSTEM_PROMPT,
           maxOutputTokens: 4096,
+          thinkingConfig: { thinkingLevel },
         },
       };
 
-      const response =
-        await genAI.models.generateContent(
-          request
-        );
-
-      const responseText =
-        response &&
-        typeof response.text === "string"
-          ? response.text.trim()
-          : "";
-
-      if (responseText) {
-        console.log(
-          `[AI] Gemini response generated using ${GEMINI_MODEL}.`
-        );
-
-        return responseText;
+      // Stream genuine Gemini chunks as they arrive instead of waiting for the full answer.
+      const stream = await genAI.models.generateContentStream(request);
+      for await (const chunk of stream) {
+        const token = typeof chunk?.text === "string" ? chunk.text : "";
+        if (!token) continue;
+        partialText += token;
+        if (onToken) onToken(token);
       }
 
-      throw new Error(
-        "Gemini returned an empty response."
-      );
+      const responseText = partialText.trim();
+      if (responseText) {
+        console.log("[AI] " + selectedModel + " replied in " + (Date.now() - startedAt) + "ms (thinking: " + thinkingLevel + ").");
+        return responseText;
+      }
+      throw new Error("Gemini returned an empty response.");
     } catch (error) {
-      console.error(
-        "[AI] Gemini request failed:",
-        error.message
-      );
+      console.error("[AI] Gemini request failed on " + selectedModel + " after " + (Date.now() - startedAt) + "ms:", error.message);
+      // If tokens were already delivered, do not duplicate the answer with a fallback.
+      if (partialText.trim()) return partialText.trim();
     }
   }
 
-  /*
-   Safe local fallback when Gemini is not configured or unavailable.
-  */
-
-  const lower =
-    message.toLowerCase();
-
-  if (
-    lower.includes("who are you") ||
-    lower.includes("your name") ||
-    lower.includes("name aleena")
-  ) {
-    return (
-      "I am Aleena AI, your intelligent digital companion."
-    );
+  // Safe local fallback when Gemini is not configured or unavailable.
+  const lower = message.toLowerCase();
+  let fallback;
+  if (lower.includes("who are you") || lower.includes("your name") || lower.includes("name aleena")) {
+    fallback = "I am Aleena AI, your intelligent digital companion.";
+  } else if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey")) {
+    fallback = "Hello! I am Aleena. How can I help you today?";
+  } else if (lower.includes("code") || lower.includes("program")) {
+    fallback = "I can help you with coding, debugging, explanations, algorithms and software projects.";
+  } else {
+    fallback = "I received your message, but the AI service is currently unavailable. Please check the Gemini API configuration.";
   }
-
-  if (
-    lower.includes("hello") ||
-    lower.includes("hi") ||
-    lower.includes("hey")
-  ) {
-    return (
-      "Hello! I am Aleena. How can I help you today?"
-    );
-  }
-
-  if (
-    lower.includes("code") ||
-    lower.includes("program")
-  ) {
-    return (
-      "I can help you with coding, debugging, explanations, algorithms and software projects."
-    );
-  }
-
-  return (
-    "I received your message, but the AI service is currently unavailable. Please check the Gemini API configuration."
-  );
+  if (onToken) onToken(fallback);
+  return fallback;
 }
-
 /* =========================================================
    HEALTH
    ========================================================= */
@@ -727,6 +674,9 @@ app.get(
       ai_provider: AI_PROVIDER,
       ai_provider_configured: Boolean(genAI),
       model: getActiveModel(),
+      reasoning_model: GEMINI_REASONING_MODEL,
+      thinking_level: GEMINI_THINKING_LEVEL,
+      complex_thinking_level: GEMINI_COMPLEX_THINKING_LEVEL,
       timestamp:
         new Date().toISOString(),
     });
@@ -1138,7 +1088,8 @@ app.post(
         response: reply,
         session_id: activeSessionId,
         emotion,
-        model: getActiveModel(),
+        model: getActiveModel(message.trim()),
+        thinking_level: getThinkingLevel(message.trim()),
       });
     } catch (error) {
       console.error("[CHAT] Error:", error.message);
@@ -1163,6 +1114,8 @@ app.get(
         "en-IN",
       provider: AI_PROVIDER,
       model: getActiveModel(),
+      reasoning_model: GEMINI_REASONING_MODEL,
+      thinking_level: GEMINI_THINKING_LEVEL,
     });
   }
 );
